@@ -25,11 +25,12 @@
 package com.cheatbreaker.obf.transformer;
 
 import com.cheatbreaker.obf.Obf;
+import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
 
 import java.util.Random;
 
-public abstract class Transformer {
+public abstract class Transformer implements Opcodes {
 
     protected final Obf obf;
     protected final Random random;

@@ -1,51 +1,31 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (C) 2018 CheatBreaker, LLC
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
-
 package com.cheatbreaker.obf.transformer;
 
 import com.cheatbreaker.obf.Obf;
 import com.cheatbreaker.obf.utils.AsmUtils;
-import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.tree.AbstractInsnNode;
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.FieldInsnNode;
-import org.objectweb.asm.tree.FieldNode;
-import org.objectweb.asm.tree.InsnNode;
-import org.objectweb.asm.tree.LdcInsnNode;
-import org.objectweb.asm.tree.MethodNode;
-import org.objectweb.asm.tree.TypeInsnNode;
+import org.objectweb.asm.tree.*;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
+import java.util.HashMap;
 
 public class StringTransformer extends Transformer {
 
-    private static final int PARTITION_BITS = 10;
-    private static final int PARTITION_SIZE = 1 << PARTITION_BITS;
-    private static final int PARTITION_MASK = PARTITION_SIZE - 1;
-    private List<String> strings = new ArrayList<>();
+    enum Method {
+        XOR_P_RANDOM_OR_P2,
+        XOR_P2_RANDOM_AND_P,
+        XOR_P_RANDOM,
+        XOR_P2_RANDOM,
+        OR_P_P2_XOR_RANDOM,
+        ADD_P_RANDOM,
+        ADD_P2_RANDOM_OR_P,
+        LSHIFT_P2_RANDOM_FMOD_16,
+        RSHIFT_P_RANDOM_FMOD_16
+    }
+
+    enum RestrictedMethod {
+        XOR_P_RANDOM,
+        OR_P_RANDOM,
+        AND_P_RANDOM_XOR_P,
+        SUB_P_RANDOM_OR_P
+    }
 
     public StringTransformer(Obf obf) {
         super(obf);
@@ -54,28 +34,282 @@ public class StringTransformer extends Transformer {
     @Override
     public void visit(ClassNode classNode) {
         for (MethodNode method : classNode.methods) {
-            for (Iterator<AbstractInsnNode> iter = method.instructions.iterator(); iter.hasNext(); ) {
-                AbstractInsnNode insn = iter.next();
-                if (insn.getOpcode() == Opcodes.LDC) {
-                    LdcInsnNode ldc = (LdcInsnNode) insn;
+            for (AbstractInsnNode instruction : method.instructions) {
+                if (AsmUtils.codeSize(method) >= 60000) {
+                    System.out.println("Skipping String, method too big: " + method.name);
+                    break;
+                }
+                if (instruction instanceof LdcInsnNode) {
+                    LdcInsnNode ldc = (LdcInsnNode) instruction;
                     if (ldc.cst instanceof String) {
-                        String string = (String) ldc.cst;
-                        int id = strings.indexOf(string);
-                        if (id == -1) {
-                            id = strings.size();
-                            strings.add(string);
+
+                        String s = (String) ldc.cst;
+                        long[] keys = new long[s.length()];
+                        long[] xorKeys = new long[s.length()];
+                        char[] chars = s.toCharArray();
+
+                        RestrictedMethod rMethod = null;
+                        HashMap<Integer, Method> methods = new HashMap<>();
+                        HashMap<Integer, Long> randomValues = new HashMap<>();
+
+                        for (int i = 0; i < chars.length; i++) {
+                            randomValues.put(i, random.nextLong());
+                            long rand = randomValues.get(i);
+                            keys[i] = chars[i];
+                            if (i == 0) {
+                                xorKeys[i] = rand;
+                            } else {
+                                if (i == 1) {
+                                    rMethod = RestrictedMethod.values()[random.nextInt(RestrictedMethod.values().length)];
+                                    switch (rMethod) {
+                                        case XOR_P_RANDOM:
+                                            xorKeys[i] = rand ^ xorKeys[0];
+                                            break;
+                                        case OR_P_RANDOM:
+                                            xorKeys[i] = rand | xorKeys[0];
+                                            break;
+                                        case SUB_P_RANDOM_OR_P:
+                                            xorKeys[i] = (xorKeys[0] - rand) | xorKeys[0];
+                                            break;
+                                        case AND_P_RANDOM_XOR_P:
+                                            xorKeys[i] = (rand & xorKeys[0]) ^ xorKeys[0];
+                                            break;
+                                    }
+                                } else {
+                                    methods.put(i, Method.values()[random.nextInt(Method.values().length)]);
+                                    switch (methods.get(i)) {
+                                        case XOR_P_RANDOM_OR_P2:
+                                            xorKeys[i] = (rand ^ xorKeys[i - 1]) | xorKeys[i - 2];
+                                            break;
+                                        case XOR_P2_RANDOM_AND_P:
+                                            xorKeys[i] = (rand ^ xorKeys[i - 2]) & xorKeys[i - 1];
+                                            break;
+                                        case XOR_P_RANDOM:
+                                            xorKeys[i] = rand ^ xorKeys[i - 1];
+                                            break;
+                                        case XOR_P2_RANDOM:
+                                            xorKeys[i] = rand ^ xorKeys[i - 2];
+                                            break;
+                                        case OR_P_P2_XOR_RANDOM:
+                                            xorKeys[i] = (xorKeys[i - 2] | xorKeys[i - 1]) ^ rand;
+                                            break;
+                                        case ADD_P_RANDOM:
+                                            xorKeys[i] = xorKeys[i - 1] + rand;
+                                            break;
+                                        case ADD_P2_RANDOM_OR_P:
+                                            xorKeys[i] = (xorKeys[i - 2] + rand) | xorKeys[i - 1];
+                                            break;
+                                        case LSHIFT_P2_RANDOM_FMOD_16:
+                                            xorKeys[i] = rand << (xorKeys[i - 2] % 16);
+                                            break;
+                                        case RSHIFT_P_RANDOM_FMOD_16:
+                                            xorKeys[i] = rand >> (xorKeys[i - 1] % 16);
+                                            break;
+                                    }
+                                }
+                            }
+                            keys[i] ^= xorKeys[i];
                         }
-                        int index = id & PARTITION_MASK;
-                        int classId = id >> PARTITION_BITS;
-                        int mask = (short) random.nextInt();
-                        int a = (short) random.nextInt() & mask | index;
-                        int b = (short) random.nextInt() & ~mask | index;
-                        method.instructions.insertBefore(insn, new FieldInsnNode(Opcodes.GETSTATIC, "generated/Strings" + classId, "strings", "[Ljava/lang/String;"));
-                        method.instructions.insertBefore(insn, AsmUtils.pushInt(a));
-                        method.instructions.insertBefore(insn, AsmUtils.pushInt(b));
-                        method.instructions.insertBefore(insn, new InsnNode(Opcodes.IAND));
-                        method.instructions.insertBefore(insn, new InsnNode(Opcodes.AALOAD));
-                        iter.remove();
+
+                        int arrayVar = method.maxLocals++;
+                        int xorKeysVar = method.maxLocals++;
+                        int loopVar = method.maxLocals++;
+                        int stringVar = method.maxLocals++;
+                        int charVar = method.maxLocals++;
+
+                        InsnList list = new InsnList();
+                        list.add(new VarInsnNode(ASTORE, stringVar));
+
+                        list.add(AsmUtils.pushInt(keys.length));
+                        list.add(new IntInsnNode(NEWARRAY, T_LONG));
+
+                        for (int i = 0; i < keys.length; i++) {
+                            list.add(new InsnNode(DUP));
+                            list.add(AsmUtils.pushInt(i));
+                            list.add(AsmUtils.pushLong(keys[i]));
+                            list.add(new InsnNode(LASTORE));
+                        }
+
+                        list.add(new VarInsnNode(ASTORE, arrayVar));
+                        list.add(AsmUtils.pushInt(keys.length));
+                        list.add(new IntInsnNode(NEWARRAY, T_LONG));
+                        list.add(new VarInsnNode(ASTORE, xorKeysVar));
+
+                        for (int i = 0; i < keys.length; i++) {
+                            if (i == 0) {
+                                list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                list.add(AsmUtils.pushInt(i));
+                                list.add(AsmUtils.pushLong(xorKeys[i]));
+                                list.add(new InsnNode(LASTORE));
+                            } else if (i == 1) {
+                                list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                list.add(AsmUtils.pushInt(i));
+                                list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                list.add(AsmUtils.pushInt(0));
+                                list.add(new InsnNode(LALOAD));
+                                switch (rMethod) {
+                                    case XOR_P_RANDOM:
+                                        list.add(AsmUtils.pushLong(randomValues.get(i)));
+                                        list.add(new InsnNode(LXOR));
+                                        break;
+                                    case OR_P_RANDOM:
+                                        list.add(AsmUtils.pushLong(randomValues.get(i)));
+                                        list.add(new InsnNode(LOR));
+                                        break;
+                                    case AND_P_RANDOM_XOR_P:
+                                        list.add(AsmUtils.pushLong(randomValues.get(i)));
+                                        list.add(new InsnNode(LAND));
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(0));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(new InsnNode(LXOR));
+                                        break;
+                                    case SUB_P_RANDOM_OR_P:
+                                        list.add(AsmUtils.pushLong(randomValues.get(i)));
+                                        list.add(new InsnNode(LSUB));
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(0));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(new InsnNode(LOR));
+                                        break;
+                                }
+                                list.add(new InsnNode(LASTORE));
+                            } else {
+                                Method m = methods.get(i);
+                                long rand = randomValues.get(i);
+                                list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                list.add(AsmUtils.pushInt(i));
+                                switch (m) {
+                                    case XOR_P_RANDOM_OR_P2:
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 1));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(AsmUtils.pushLong(rand));
+                                        list.add(new InsnNode(LXOR));
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 2));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(new InsnNode(LOR));
+                                        break;
+                                    case XOR_P2_RANDOM_AND_P:
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 2));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(AsmUtils.pushLong(rand));
+                                        list.add(new InsnNode(LXOR));
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 1));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(new InsnNode(LAND));
+                                        break;
+                                    case XOR_P_RANDOM:
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 1));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(AsmUtils.pushLong(rand));
+                                        list.add(new InsnNode(LXOR));
+                                        break;
+                                    case XOR_P2_RANDOM:
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 2));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(AsmUtils.pushLong(rand));
+                                        list.add(new InsnNode(LXOR));
+                                        break;
+                                    case OR_P_P2_XOR_RANDOM:
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 1));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 2));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(new InsnNode(LOR));
+                                        list.add(AsmUtils.pushLong(rand));
+                                        list.add(new InsnNode(LXOR));
+                                        break;
+                                    case ADD_P_RANDOM:
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 1));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(AsmUtils.pushLong(rand));
+                                        list.add(new InsnNode(LADD));
+                                        break;
+                                    case ADD_P2_RANDOM_OR_P:
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 2));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(AsmUtils.pushLong(rand));
+                                        list.add(new InsnNode(LADD));
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 1));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(new InsnNode(LOR));
+                                        break;
+                                    case LSHIFT_P2_RANDOM_FMOD_16:
+                                        list.add(AsmUtils.pushLong(rand));
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 2));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(AsmUtils.pushLong(16L));
+                                        list.add(new InsnNode(LREM));
+                                        list.add(new InsnNode(L2I));
+                                        list.add(new InsnNode(LSHL));
+                                        break;
+                                    case RSHIFT_P_RANDOM_FMOD_16:
+                                        list.add(AsmUtils.pushLong(rand));
+                                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                                        list.add(AsmUtils.pushInt(i - 1));
+                                        list.add(new InsnNode(LALOAD));
+                                        list.add(AsmUtils.pushLong(16L));
+                                        list.add(new InsnNode(LREM));
+                                        list.add(new InsnNode(L2I));
+                                        list.add(new InsnNode(LSHR));
+                                        break;
+                                }
+                                list.add(new InsnNode(LASTORE));
+                            }
+                        }
+
+
+                        list.add(AsmUtils.pushInt(0));
+                        list.add(new VarInsnNode(ISTORE, loopVar));
+
+                        LabelNode start = new LabelNode();
+                        LabelNode end = new LabelNode();
+
+                        list.add(start);
+                        list.add(new VarInsnNode(ILOAD, loopVar));
+                        list.add(new VarInsnNode(ALOAD, arrayVar));
+                        list.add(new InsnNode(ARRAYLENGTH));
+                        list.add(new JumpInsnNode(IF_ICMPGE, end));
+                        list.add(new VarInsnNode(ALOAD, arrayVar));
+                        list.add(new VarInsnNode(ILOAD, loopVar));
+                        list.add(new InsnNode(LALOAD));
+                        list.add(new VarInsnNode(ALOAD, xorKeysVar));
+                        list.add(new VarInsnNode(ILOAD, loopVar));
+                        list.add(new InsnNode(LALOAD));
+                        list.add(new InsnNode(LXOR));
+                        list.add(new InsnNode(L2I));
+                        list.add(new VarInsnNode(ISTORE, charVar));
+
+                        list.add(new TypeInsnNode(NEW, "java/lang/StringBuilder"));
+                        list.add(new InsnNode(DUP));
+                        list.add(new MethodInsnNode(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V"));
+                        list.add(new VarInsnNode(ALOAD, stringVar));
+                        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;"));
+                        list.add(new VarInsnNode(ILOAD, charVar));
+                        list.add(new InsnNode(I2C));
+                        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(C)Ljava/lang/StringBuilder;"));
+                        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;"));
+                        list.add(new VarInsnNode(ASTORE, stringVar));
+                        list.add(new IincInsnNode(loopVar, 1));
+                        list.add(new JumpInsnNode(GOTO, start));
+
+                        list.add(end);
+                        list.add(new VarInsnNode(ALOAD, stringVar));
+
+                        method.instructions.insert(ldc, list);
+                        ldc.cst = "";
                     }
                 }
             }
@@ -84,28 +318,8 @@ public class StringTransformer extends Transformer {
 
     @Override
     public void after() {
-        for (int classId = 0; classId <= strings.size() >> PARTITION_BITS; classId++) {
-            ClassNode classNode = new ClassNode();
-            classNode.version = Opcodes.V1_8;
-            classNode.access = Opcodes.ACC_PUBLIC;
-            classNode.name = "generated/Strings" + classId;
-            classNode.superName = "java/lang/Object";
-            classNode.fields.add(new FieldNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "strings", "[Ljava/lang/String;", null, null));
-            MethodNode clinit = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "<clinit>", "()V", null, null);
-            classNode.methods.add(clinit);
-            int start = classId << PARTITION_BITS;
-            int end = Math.min(start + PARTITION_SIZE, strings.size());
-            clinit.instructions.add(AsmUtils.pushInt(end - start));
-            clinit.instructions.add(new TypeInsnNode(Opcodes.ANEWARRAY, "Ljava/lang/String;"));
-            for (int id = start; id < end; id++) {
-                clinit.instructions.add(new InsnNode(Opcodes.DUP));
-                clinit.instructions.add(AsmUtils.pushInt(id & PARTITION_MASK));
-                clinit.instructions.add(new LdcInsnNode(strings.get(id)));
-                clinit.instructions.add(new InsnNode(Opcodes.AASTORE));
-            }
-            clinit.instructions.add(new FieldInsnNode(Opcodes.PUTSTATIC, classNode.name, "strings", "[Ljava/lang/String;"));
-            clinit.instructions.add(new InsnNode(Opcodes.RETURN));
-            obf.addNewClass(classNode);
+        for (ClassNode newClass : obf.getNewClasses()) {
+            visit(newClass);
         }
     }
 }

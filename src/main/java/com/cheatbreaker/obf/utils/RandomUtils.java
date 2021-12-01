@@ -24,11 +24,34 @@
 
 package com.cheatbreaker.obf.utils;
 
+import com.cheatbreaker.obf.Obf;
+
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
 
 public class RandomUtils {
+
+    private static Dictionary dictionary;
+
+    public static void setDictionary(Dictionary dictionary) {
+        RandomUtils.dictionary = dictionary;
+    }
+
+    private static String[] keywords = new String[]{
+            // java keywords
+            "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class", "const", "continue", "default", "do", "double", "else", "enum", "extends", "final", "finally", "float", "for", "goto", "if", "implements", "import", "instanceof", "int", "interface", "long", "native", "new", "package", "private", "protected", "public", "return", "short", "static", "strictfp", "super", "switch", "synchronized", "this", "throw", "throws", "transient", "try", "void", "volatile", "while",
+            // java types
+            "boolean", "byte", "char", "double", "float", "int", "long", "short", "void",
+            // java literals
+            "true", "false", "null",
+            // java keywords
+            "import", "package", "return", "static", "this", "throw", "throws", "transient", "try", "void", "volatile",
+    };
+
     public static <T> List<T> swap(Random random, T a, T b) {
         if (random.nextBoolean()) {
             return Arrays.asList(a, b);
@@ -39,5 +62,34 @@ public class RandomUtils {
 
     public static <T> T choice(Random random, List<T> items) {
         return items.get(random.nextInt(items.size()));
+    }
+
+    private static LinkedList<String> used = new LinkedList<>();
+
+    public static String randomString(int i) {
+
+        Random random = new SecureRandom();
+        StringBuilder sb = new StringBuilder();
+
+        int j = 0;
+
+        switch (dictionary) {
+            case KEYWORDS:
+                while (j < i) {
+                    sb.append(keywords[random.nextInt(keywords.length)]).append(" ");
+                    j++;
+                }
+                break;
+            case ARABIC:
+                while (j < i) {
+                    char c = (char) (random.nextInt(0xFF) + 0x0600);
+                    sb.append(c);
+                    j++;
+                }
+                break;
+
+        }
+
+        return sb.toString();
     }
 }

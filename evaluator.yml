@@ -1,0 +1,18 @@
+input: eval.jar
+output: output.jar
+libs: []
+
+misc:
+  inliner:
+    enabled: true
+    excluded: []
+    iterations: 1
+    maxPasses: 5
+
+methods:
+  proxy:
+    enabled: true
+    excluded: []
+    iterations: 1
+    redirections: true
+    inline-redirection: true

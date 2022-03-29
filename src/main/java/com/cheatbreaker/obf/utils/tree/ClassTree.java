@@ -1,4 +1,4 @@
-package com.cheatbreaker.obf.utils;
+package com.cheatbreaker.obf.utils.tree;
 
 import java.util.HashSet;
 import java.util.Set;

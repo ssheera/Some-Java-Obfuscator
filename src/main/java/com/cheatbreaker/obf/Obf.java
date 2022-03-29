@@ -1,62 +1,46 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (C) 2018 CheatBreaker, LLC
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
-
 package com.cheatbreaker.obf;
 
-import com.cheatbreaker.obf.transformer.*;
-import com.cheatbreaker.obf.utils.*;
-import com.cheatbreaker.obf.utils.Dictionary;
+import com.cheatbreaker.obf.transformer.misc.InlinerTransformer;
+import com.cheatbreaker.obf.transformer.methods.ProxyTransformer;
+import com.cheatbreaker.obf.transformer.Transformer;
+import com.cheatbreaker.obf.utils.asm.FixedClassWriter;
+import com.cheatbreaker.obf.utils.configuration.file.YamlConfiguration;
+import com.cheatbreaker.obf.utils.tree.ClassTree;
+import lombok.Getter;
 import org.apache.commons.io.IOUtils;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.MethodNode;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
+import java.util.stream.Collectors;
 
-public class Obf {
-
-    private GuardClassLoader classLoader;
-
-    private static Obf instance;
-
-    public static Obf getInstance() {
-        return instance;
-    }
+public class Obf implements Opcodes {
 
     private final Map<String, ClassTree> hierachy = new HashMap<>();
 
-    private final Random random;
+    private Manifest manifest;
+
+    @Getter
+    private static Obf instance;
+
+    private final ThreadLocalRandom random;
     private final List<ClassNode> classes = new ArrayList<>();
-    private final List<ClassNode> libs = new ArrayList<>();
+    private final List<ClassNode> libs = new ArrayList<>(65525);
     private final List<Transformer> transformers = new ArrayList<>();
     private final List<ClassNode> newClasses = new ArrayList<>();
+    private final YamlConfiguration config;
     private final HashMap<String, byte[]> resources = new HashMap<>();
 
     private final Vector<String> libraries = new Vector<>();
@@ -71,21 +55,23 @@ public class Obf {
                 }
             }
         }
+
     }
 
     public void loadJar(File inputFile, boolean lib) throws Exception {
         if (!inputFile.exists()) return;
         JarFile inputJar = new JarFile(inputFile);
+        if (!lib) manifest = inputJar.getManifest();
         for (Enumeration<JarEntry> iter = inputJar.entries(); iter.hasMoreElements(); ) {
             JarEntry entry = iter.nextElement();
+            if (entry.isDirectory()) continue;
             try (InputStream in = inputJar.getInputStream(entry)) {
                 byte[] bytes = IOUtils.toByteArray(in);
                 if (entry.getName().endsWith(".class")) {
                     ClassReader reader = new ClassReader(bytes);
                     ClassNode classNode = new ClassNode();
-                    reader.accept(classNode, 0);
+                    reader.accept(classNode, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
                     if (lib) libs.add(classNode); else classes.add(classNode);
-                    classLoader.addClass(classNode.name, bytes);
                 } else {
                     if (!lib) resources.put(entry.getName(), bytes);
                 }
@@ -95,11 +81,17 @@ public class Obf {
 
     private List<File> walkFolder(File folder) {
         List<File> files = new ArrayList<>();
+        if (!folder.isDirectory()) {
+            if (folder.getName().endsWith(".jar"))
+                files.add(folder);
+            return files;
+        }
         for (File file : folder.listFiles()) {
             if (file.isDirectory()) {
                 files.addAll(walkFolder(file));
             } else {
-                files.add(file);
+                if (file.getName().endsWith(".jar"))
+                    files.add(file);
             }
         }
         return files;
@@ -163,7 +155,6 @@ public class Obf {
         return toProcess;
     }
 
-
     public void loadHierachyAll(ClassNode classNode) {
         Set<String> processed = new HashSet<>();
         LinkedList<ClassNode> toLoad = new LinkedList<>();
@@ -177,65 +168,110 @@ public class Obf {
         }
     }
 
+    public YamlConfiguration getConfig() {
+        return config;
+    }
 
-    public Obf(File inputFile, File outputFile, List<File> libs) throws Exception {
+    public Obf(YamlConfiguration configuration) throws Exception {
+
+        this.config = configuration;
+
+        File inputFile = new File(config.getString("input"));
+        File outputFile = new File(config.getString("output"));
+        List<File> libs = config.getStringList("libs").stream().map(File::new).collect(Collectors.toList());
 
         instance = this;
-        this.classLoader = new GuardClassLoader();
-        Thread.currentThread().setContextClassLoader(this.classLoader);
         loadJavaRuntime();
 
+        LinkedList<Thread> libraryThreads = new LinkedList<>();
+
+        System.out.println("Loading libraries...");
+
         for (String library : libraries) {
-            System.out.println("Loading runtime: " + library);
-            loadJar(new File(library), true);
+            libraryThreads.add(new Thread(() -> {
+                try {
+                    loadJar(new File(library), true);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }));
         }
 
         for (File folder : libs) {
             for (File lib : walkFolder(folder)) {
-                System.out.println("Loading library: " + lib);
-                loadJar(lib, true);
+                if (lib.getName().startsWith("rt")) {
+                    continue;
+                }
+                libraryThreads.add(new Thread(() -> {
+                    try {
+                        loadJar(lib, true);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }));
             }
         }
 
+        for (Thread libraryThread : libraryThreads) {
+            libraryThread.start();
+        }
+
+        for (Thread libraryThread : libraryThreads) {
+            libraryThread.join();
+        }
+
         System.out.println("Reading jar...");
+
         loadJar(inputFile, false);
 
-        random = new Random();
+        System.out.println("Loading hierarchy...");
 
-        RandomUtils.setDictionary(Dictionary.KEYWORDS);
+        loadHierachy();
 
-        transformers.add(new MethodTransformer(this));
-        transformers.add(new SpecialTransformer(this));
-        transformers.add(new FieldTransformer(this));
-        transformers.add(new StringTransformer(this));
+        random = ThreadLocalRandom.current();
+
+        transformers.add(new InlinerTransformer(this));
+        transformers.add(new ProxyTransformer(this));
 
         try (JarOutputStream out = new JarOutputStream(new FileOutputStream(outputFile))) {
 
             System.out.println("Transforming classes...");
             for (Transformer transformer : transformers) {
                 System.out.println("Running " + transformer.getClass().getSimpleName() + "...");
-                classes.forEach((transformer::visit));
+                classes.forEach((transformer::run));
             }
 
             for (Transformer transformer : transformers) {
                 transformer.after();
             }
 
-            for (ClassNode classNode : classes) {
-                classNode.innerClasses.clear();
-            }
-
             System.out.println("Writing classes...");
+
             for (ClassNode classNode : classes) {
-                GuardClassWriter writer = new GuardClassWriter(this, ClassWriter.COMPUTE_FRAMES);
-                classNode.accept(writer);
-                out.putNextEntry(new JarEntry(classNode.name + ".class"));
-                out.write(writer.toByteArray());
+                classNode.sourceFile = null;
+                classNode.sourceDebug = null;
+                classNode.innerClasses.clear();
+                for (MethodNode method : classNode.methods)
+                    method.localVariables = null;
+                FixedClassWriter writer = new FixedClassWriter(this, ClassWriter.COMPUTE_FRAMES);
+                try {
+                    classNode.accept(writer);
+                    byte[] b = writer.toByteArray();
+                    out.putNextEntry(new JarEntry(classNode.name + ".class"));
+                    out.write(b);
+                } catch (Exception ex) {
+                    System.out.println("Failed to compute frames for class: " + classNode.name + ", " + ex.getMessage());
+                    writer = new FixedClassWriter(this, ClassWriter.COMPUTE_MAXS);
+                    classNode.accept(writer);
+                    byte[] b = writer.toByteArray();
+                    out.putNextEntry(new JarEntry(classNode.name + ".class"));
+                    out.write(b);
+                }
             }
 
             System.out.println("Writing generated classes...");
             for (ClassNode classNode : newClasses) {
-                GuardClassWriter writer = new GuardClassWriter(this, ClassWriter.COMPUTE_FRAMES);
+                FixedClassWriter writer = new FixedClassWriter(this, ClassWriter.COMPUTE_FRAMES);
                 classNode.accept(writer);
                 out.putNextEntry(new JarEntry(classNode.name + ".class"));
                 out.write(writer.toByteArray());
@@ -246,10 +282,12 @@ public class Obf {
                 try {
                     out.putNextEntry(new JarEntry(name));
                     out.write(data);
-                } catch (Exception ex) {
-                    ex.printStackTrace();
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
             });
+
+            out.close();
 
             long difference = outputFile.length() - inputFile.length();
 
@@ -257,7 +295,8 @@ public class Obf {
         }
     }
 
-    public Random getRandom() {
+
+    public ThreadLocalRandom getRandom() {
         return random;
     }
 
@@ -278,12 +317,19 @@ public class Obf {
     }
 
     public ClassNode assureLoaded(String owner) {
+        if (owner == null) return null;
         for (ClassNode classNode : classes) {
             if (classNode.name.equals(owner)) return classNode;
         }
         for (ClassNode classNode : libs) {
+            if (classNode == null) continue;
             if (classNode.name.equals(owner)) return classNode;
         }
-        throw new NoClassDefFoundError(owner);
+        return null;
+//        throw new NoClassDefFoundError(owner);
+    }
+
+    public Manifest getManifest() {
+        return manifest;
     }
 }

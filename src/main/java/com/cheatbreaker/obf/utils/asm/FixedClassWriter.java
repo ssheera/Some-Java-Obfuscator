@@ -1,6 +1,7 @@
-package com.cheatbreaker.obf.utils;
+package com.cheatbreaker.obf.utils.asm;
 
 import com.cheatbreaker.obf.Obf;
+import com.cheatbreaker.obf.utils.tree.ClassTree;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.tree.ClassNode;
 
@@ -9,11 +10,11 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.Set;
 
-public class GuardClassWriter extends ClassWriter {
+public class FixedClassWriter extends ClassWriter {
 
-    private Obf obf;
+    private final Obf obf;
 
-    public GuardClassWriter(Obf obf, int flags) {
+    public FixedClassWriter(Obf obf, int flags) {
         super(flags);
         this.obf = obf;
     }
@@ -27,17 +28,21 @@ public class GuardClassWriter extends ClassWriter {
         if (type1.equals("java/lang/Object") || type2.equals("java/lang/Object")) {
             return "java/lang/Object";
         }
-        String a = getCommonSuperClass0(type1, type2);
-        String b = getCommonSuperClass0(type2, type1);
-        if (!a.equals("java/lang/Object")) {
-            return a;
+        try {
+            String a = getCommonSuperClass0(type1, type2);
+            String b = getCommonSuperClass0(type2, type1);
+            if (!a.equals("java/lang/Object")) {
+                return a;
+            }
+            if (!b.equals("java/lang/Object")) {
+                return b;
+            }
+            ClassNode first = obf.assureLoaded(type1);
+            ClassNode second = obf.assureLoaded(type2);
+            return getCommonSuperClass(first.superName, second.superName);
+        } catch (Exception e) {
+            return "java/lang/Object";
         }
-        if (!b.equals("java/lang/Object")) {
-            return b;
-        }
-        ClassNode first = obf.assureLoaded(type1);
-        ClassNode second = obf.assureLoaded(type2);
-        return getCommonSuperClass(first.superName, second.superName);
     }
 
     private String getCommonSuperClass0(String type1, String type2) {
@@ -78,4 +83,5 @@ public class GuardClassWriter extends ClassWriter {
         }
         return allChilds1.contains(type2);
     }
+
 }

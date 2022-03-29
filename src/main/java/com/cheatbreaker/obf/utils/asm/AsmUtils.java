@@ -22,14 +22,13 @@
  * SOFTWARE.
  */
 
-package com.cheatbreaker.obf.utils;
+package com.cheatbreaker.obf.utils.asm;
 
 import com.cheatbreaker.obf.Obf;
-import lombok.SneakyThrows;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.CodeSizeEvaluator;
 import org.objectweb.asm.tree.*;
-import org.objectweb.asm.tree.analysis.*;
 import org.objectweb.asm.util.Printer;
 import org.objectweb.asm.util.Textifier;
 import org.objectweb.asm.util.TraceMethodVisitor;
@@ -37,22 +36,13 @@ import sun.misc.Unsafe;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Stack;
 
 public class AsmUtils implements Opcodes{
 
-    public static Unsafe getUnsafe() {
-        try {
-            Field f = Unsafe.class.getDeclaredField("theUnsafe");
-            f.setAccessible(true);
-            return (Unsafe) f.get(null);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
+    public static final int MAX_INSTRUCTIONS = 0xFFFF;
 
     public static boolean isPushInt(AbstractInsnNode insn) {
         int op = insn.getOpcode();
@@ -211,58 +201,23 @@ public class AsmUtils implements Opcodes{
         }
     }
 
-    @SneakyThrows
-    public static int getIndex(AbstractInsnNode insn) {
-        Field f = AbstractInsnNode.class.getDeclaredField("index");
-        f.setAccessible(true);
-        return f.getInt(insn);
-    }
-
-    public static FieldNode findField(String className, String fieldName, String fieldDesc, List<ClassNode> classes) {
-        for (ClassNode classNode : classes) {
-            if (className == null || classNode.name.equals(className)) {
-                if (classNode.fields != null) {
-                    for (FieldNode field : classNode.fields) {
-                        if (fieldName == null || field.name.equals(fieldName)) {
-                            if (fieldDesc == null || field.desc.equals(fieldDesc)) {
-                                return field;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        return null;
-    }
-
-    public static FieldNode findField(String className, String fieldName, String fieldDesc) {
-        FieldNode f = findField(className, fieldName, fieldDesc, Obf.getInstance().getClasses());
-        if (f == null) {
-            f = findField(className, fieldName, fieldDesc, Obf.getInstance().getLibs());
-        }
-        return f;
-    }
-
-    @SneakyThrows
-    public static Frame<SourceValue> getStack(ClassNode owner, MethodNode method, AbstractInsnNode insn) {
-        SourceInterpreter interpreter = new SourceInterpreter();
-        Analyzer<SourceValue> analyzer = new Analyzer<>(interpreter);
-        Field index_f = AbstractInsnNode.class.getDeclaredField("index");
-        index_f.setAccessible(true);
-        int index = index_f.getInt(insn);
-        Frame<SourceValue>[] frames = null;
-        try {
-            frames = analyzer.analyzeAndComputeMaxs(owner.name, method);
-        } catch (Exception ex) {
-            System.err.println(print(insn));
-            ex.printStackTrace();
-        }
-        return frames == null ? null : frames[index];
-    }
-
     private static final Printer printer = new Textifier();
     private static final TraceMethodVisitor methodPrinter = new TraceMethodVisitor(printer);
+
+    public static FieldNode findField(Obf obf, String owner, String name, String desc) {
+        ClassNode classNode = obf.assureLoaded(owner);
+        if (classNode == null) return null;
+        return findField(classNode, name, desc);
+    }
+
+    public static FieldNode findField(ClassNode classNode, String name, String desc) {
+        for (FieldNode field : classNode.fields) {
+            if (field.name.equals(name) && (desc == null || field.desc.equals(desc))) {
+                return field;
+            }
+        }
+        return null;
+    }
 
     public static String print(AbstractInsnNode insnNode) {
         if (insnNode == null) return "null";
@@ -271,5 +226,94 @@ public class AsmUtils implements Opcodes{
         printer.print(new PrintWriter(sw));
         printer.getText().clear();
         return sw.toString().trim();
+    }
+
+    public static MethodNode findMethod(Obf obf, String owner, String name, String descriptor) {
+        ClassNode classNode = obf.assureLoaded(owner);
+        if (classNode == null) return null;
+        return findMethod(classNode, name, descriptor);
+    }
+
+    public static MethodNode findMethod(ClassNode classNode, String name, String descriptor) {
+        for (MethodNode method : classNode.methods) {
+            if (method.name.equals(name) && (descriptor == null || method.desc.equals(descriptor))) {
+                return method;
+            }
+        }
+        return null;
+    }
+
+    public static LabelNode[] getLabels(MethodNode method) {
+        List<LabelNode> labels = new ArrayList<>();
+        for (AbstractInsnNode insnNode : method.instructions.toArray()) {
+            if (insnNode instanceof LabelNode) {
+                labels.add((LabelNode) insnNode);
+            }
+        }
+        return labels.toArray(new LabelNode[0]);
+    }
+
+    public static InsnList iterate(InsnList instructions, AbstractInsnNode start, AbstractInsnNode end) {
+        InsnList list = new InsnList();
+        boolean f = false;
+        for (AbstractInsnNode instruction : instructions) {
+            if (!f && instruction == start) {
+                f = true;
+            }
+            if (f) {
+                list.add(instruction);
+            }
+            if (instruction == end) {
+                break;
+            }
+        }
+        return list;
+    }
+
+    public static ClassNode clone(ClassNode classNode) {
+        ClassNode c = new ClassNode();
+        classNode.accept(c);
+        return c;
+    }
+
+    public static void boxClass(InsnList list, Type type) {
+        switch (type.getDescriptor()) {
+            case "I":
+                list.add(new FieldInsnNode(GETSTATIC, "java/lang/Integer", "TYPE", "Ljava/lang/Class;"));
+                break;
+            case "Z":
+                list.add(new FieldInsnNode(GETSTATIC, "java/lang/Boolean", "TYPE", "Ljava/lang/Class;"));
+                break;
+            case "B":
+                list.add(new FieldInsnNode(GETSTATIC, "java/lang/Byte", "TYPE", "Ljava/lang/Class;"));
+                break;
+            case "C":
+                list.add(new FieldInsnNode(GETSTATIC, "java/lang/Character", "TYPE", "Ljava/lang/Class;"));
+                break;
+            case "S":
+                list.add(new FieldInsnNode(GETSTATIC, "java/lang/Short", "TYPE", "Ljava/lang/Class;"));
+                break;
+            case "J":
+                list.add(new FieldInsnNode(GETSTATIC, "java/lang/Long", "TYPE", "Ljava/lang/Class;"));
+                break;
+            case "F":
+                list.add(new FieldInsnNode(GETSTATIC, "java/lang/Float", "TYPE", "Ljava/lang/Class;"));
+                break;
+            case "D":
+                list.add(new FieldInsnNode(GETSTATIC, "java/lang/Double", "TYPE", "Ljava/lang/Class;"));
+                break;
+            case "V":
+                list.add(new FieldInsnNode(GETSTATIC, "java/lang/Void", "TYPE", "Ljava/lang/Class;"));
+                break;
+            default:
+                list.add(new LdcInsnNode(type));
+                break;
+        }
+    }
+
+    public static MethodNode createMethod(int access, String name, String desc) {
+        MethodNode m = new MethodNode(access, name, desc, null, null);
+        m.instructions = new InsnList();
+        return m;
     }
 }

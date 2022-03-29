@@ -24,17 +24,12 @@
 
 package com.cheatbreaker.obf;
 
+import com.cheatbreaker.obf.utils.configuration.file.YamlConfiguration;
 import joptsimple.OptionException;
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
 
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.List;
-import java.util.logging.Logger;
 
 public class Main {
 
@@ -43,28 +38,25 @@ public class Main {
         System.out.println("Starting XenonGuard...");
 
         OptionParser parser = new OptionParser();
-        parser.accepts("input").withRequiredArg().required().ofType(File.class);
-        parser.accepts("output").withRequiredArg().required().ofType(File.class);
-        parser.accepts("libraries").withOptionalArg().ofType(File.class).withValuesSeparatedBy(',');
+        parser.accepts("config").withRequiredArg().required().ofType(File.class);
 
         OptionSet options;
 
         try {
             options = parser.parse(args);
         } catch (OptionException ex) {
-            System.out.println("Usage: obf --input <inputjar> --output <outputjar> --libraries [libraries]");
+            System.out.println("Usage: obf --config <config>");
             System.out.println(ex.getMessage());
             System.exit(1);
             return;
         }
 
-        File inputFile = (File) options.valueOf("input");
-        File outputFile = (File) options.valueOf("output");
+        File configFile = (File) options.valueOf("config");
 
-        List<File> libs = (List<File>) options.valuesOf("libraries");
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(configFile);
 
         try {
-            new Obf(inputFile, outputFile, libs);
+            new Obf(config);
         } catch (Exception ex) {
             ex.printStackTrace();
             System.exit(1);

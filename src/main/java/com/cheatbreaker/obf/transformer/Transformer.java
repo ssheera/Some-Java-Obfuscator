@@ -25,23 +25,54 @@
 package com.cheatbreaker.obf.transformer;
 
 import com.cheatbreaker.obf.Obf;
+import com.cheatbreaker.obf.utils.configuration.ConfigurationSection;
+import com.cheatbreaker.obf.utils.configuration.file.YamlConfiguration;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
 
 import java.util.Random;
+import java.util.Vector;
+import java.util.concurrent.ThreadLocalRandom;
 
 public abstract class Transformer implements Opcodes {
 
     protected final Obf obf;
-    protected final Random random;
+    protected final ThreadLocalRandom random;
+    protected final ConfigurationSection config;
+    protected int iterations = 1;
+
+    protected Vector<String> excluded = new Vector<>();
+    protected boolean enabled;
+
+    public abstract String getSection();
 
     public Transformer(Obf obf) {
         this.obf = obf;
         this.random = obf.getRandom();
+        this.config = obf.getConfig().getConfigurationSection(getSection());
+
+        this.enabled = config.getBoolean("enabled", true);
+        this.excluded.addAll(config.getStringList("excluded"));
+        this.iterations = config.getInt("iterations", 1);
+    }
+
+
+    public void run(ClassNode classNode) {
+        if (!enabled) return;
+        for (int i = 0; i < iterations; i++) {
+            visit(classNode);
+        }
     }
 
     public abstract void visit(ClassNode classNode);
 
-    public void after() {
+    public void after() {}
+
+    protected boolean nextBoolean(int i) {
+        boolean ret = random.nextBoolean();
+        for (int j = 0; j < i; j++) {
+            ret = random.nextBoolean() && ret;
+        }
+        return ret;
     }
 }

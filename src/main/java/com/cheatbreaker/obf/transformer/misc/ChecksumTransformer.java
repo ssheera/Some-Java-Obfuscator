@@ -15,6 +15,7 @@ import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.Analyzer;
 import org.objectweb.asm.tree.analysis.BasicInterpreter;
 
+import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -143,14 +144,31 @@ public class ChecksumTransformer extends Transformer {
                     Label label2 = new Label();
                     checkMethod.visitJumpInsn(IF_ICMPEQ, label2);
 
-                    Label label3 = new Label();
-                    checkMethod.visitLabel(label3);
-                    checkMethod.visitMethodInsn(INVOKESTATIC, "java/lang/System", "gc", "()V");
-                    checkMethod.visitJumpInsn(GOTO, label3);
+                    checkMethod.visitMethodInsn(INVOKESTATIC, "sun/misc/Launcher", "getLauncher", "()Lsun/misc/Launcher;", false);
+                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "sun/misc/Launcher", "getClassLoader", "()Ljava/lang/ClassLoader;", false);
+                    checkMethod.visitInsn(DUP);
+                    checkMethod.visitVarInsn(ASTORE, 7);
+                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Object", "getClass", "()Ljava/lang/Class;", false);
+                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Class", "getSuperclass", "()Ljava/lang/Class;", false);
+                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Class", "getDeclaredFields", "()[Ljava/lang/reflect/Field;", false);
+                    checkMethod.visitInsn(ICONST_0);
+                    checkMethod.visitInsn(AALOAD);
+                    checkMethod.visitVarInsn(ASTORE, 8);
+                    checkMethod.visitVarInsn(ALOAD, 8);
+                    checkMethod.visitInsn(ICONST_1);
+                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/lang/reflect/Field", "setAccessible", "(Z)V", false);
+                    checkMethod.visitVarInsn(ALOAD, 8);
+                    checkMethod.visitVarInsn(ALOAD, 7);
+                    checkMethod.visitTypeInsn(NEW, "sun/misc/URLClassPath");
+                    checkMethod.visitInsn(DUP);
+                    checkMethod.visitInsn(ICONST_0);
+                    checkMethod.visitTypeInsn(ANEWARRAY, "java/net/URL");
+                    checkMethod.visitInsn(ACONST_NULL);
+                    checkMethod.visitMethodInsn(INVOKESPECIAL, "sun/misc/URLClassPath", "<init>", "([Ljava/net/URL;Ljava/security/AccessControlContext;)V", false);
+                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/lang/reflect/Field", "set", "(Ljava/lang/Object;Ljava/lang/Object;)V", false);
 
                     checkMethod.visitLabel(label2);
                     checkMethod.visitInsn(RETURN);
-                    checkMethod.visitMaxs(4, 6);
                     checkMethod.visitEnd();
 
                     holder.methods.add(checkMethod);
@@ -164,7 +182,6 @@ public class ChecksumTransformer extends Transformer {
 
                     if (reobfTarget) {
                         for (Transformer transformer : obf.getTransformers()) {
-                            if (transformer instanceof ProxyTransformer) continue;
                             transformer.target = new ClassMethodNode(holder, checkMethod);
                             transformer.run(holder);
                             transformer.target = null;

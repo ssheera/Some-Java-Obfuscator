@@ -27,8 +27,10 @@ package com.cheatbreaker.obf.transformer;
 import com.cheatbreaker.obf.Obf;
 import com.cheatbreaker.obf.utils.configuration.ConfigurationSection;
 import com.cheatbreaker.obf.utils.configuration.file.YamlConfiguration;
+import com.cheatbreaker.obf.utils.pair.ClassMethodNode;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.MethodNode;
 
 import java.util.Random;
 import java.util.Vector;
@@ -43,6 +45,7 @@ public abstract class Transformer implements Opcodes {
 
     protected Vector<String> excluded = new Vector<>();
     protected boolean enabled;
+    public ClassMethodNode target;
 
     public abstract String getSection();
 
@@ -66,7 +69,12 @@ public abstract class Transformer implements Opcodes {
 
     public abstract void visit(ClassNode classNode);
 
-    public void after() {}
+    public void runAfter() {
+        if (!enabled) return;
+        after();
+    }
+
+    protected void after() {}
 
     protected boolean nextBoolean(int i) {
         boolean ret = random.nextBoolean();
@@ -75,4 +83,13 @@ public abstract class Transformer implements Opcodes {
         }
         return ret;
     }
+
+    protected void error(String message, Object... args) {
+        System.err.printf("[" + this.getClass().getSimpleName() + "] " + message + "\n", args);
+    }
+
+    protected void log(String message, Object... args) {
+        System.out.printf("[" + this.getClass().getSimpleName() + "] " + message + "\n", args);
+    }
+
 }

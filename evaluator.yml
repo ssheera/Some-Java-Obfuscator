@@ -8,6 +8,15 @@ misc:
     excluded: []
     iterations: 1
     maxPasses: 5
+  checksum:
+    enabled: true
+    excluded: []
+    iterations: 1
+    holders:
+      - dev/sim0n/evaluator/Main
+    targets:
+      - dev/sim0n/evaluator/util/Evaluation
+    reobf: true
 
 methods:
   proxy:

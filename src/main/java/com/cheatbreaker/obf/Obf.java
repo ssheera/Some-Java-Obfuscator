@@ -1,5 +1,6 @@
 package com.cheatbreaker.obf;
 
+import com.cheatbreaker.obf.transformer.misc.ChecksumTransformer;
 import com.cheatbreaker.obf.transformer.misc.InlinerTransformer;
 import com.cheatbreaker.obf.transformer.methods.ProxyTransformer;
 import com.cheatbreaker.obf.transformer.Transformer;
@@ -42,6 +43,11 @@ public class Obf implements Opcodes {
     private final List<ClassNode> newClasses = new ArrayList<>();
     private final YamlConfiguration config;
     private final HashMap<String, byte[]> resources = new HashMap<>();
+    private final HashMap<String, byte[]> generated = new HashMap<>();
+
+    public List<Transformer> getTransformers() {
+        return transformers;
+    }
 
     private final Vector<String> libraries = new Vector<>();
 
@@ -224,14 +230,11 @@ public class Obf implements Opcodes {
 
         loadJar(inputFile, false);
 
-        System.out.println("Loading hierarchy...");
-
-        loadHierachy();
-
         random = ThreadLocalRandom.current();
 
         transformers.add(new InlinerTransformer(this));
         transformers.add(new ProxyTransformer(this));
+        transformers.add(new ChecksumTransformer(this));
 
         try (JarOutputStream out = new JarOutputStream(new FileOutputStream(outputFile))) {
 
@@ -241,29 +244,40 @@ public class Obf implements Opcodes {
                 classes.forEach((transformer::run));
             }
 
-            for (Transformer transformer : transformers) {
-                transformer.after();
-            }
-
-            System.out.println("Writing classes...");
-
             for (ClassNode classNode : classes) {
                 classNode.sourceFile = null;
                 classNode.sourceDebug = null;
                 classNode.innerClasses.clear();
                 for (MethodNode method : classNode.methods)
                     method.localVariables = null;
-                FixedClassWriter writer = new FixedClassWriter(this, ClassWriter.COMPUTE_FRAMES);
-                try {
-                    classNode.accept(writer);
-                    byte[] b = writer.toByteArray();
-                    out.putNextEntry(new JarEntry(classNode.name + ".class"));
-                    out.write(b);
-                } catch (Exception ex) {
-                    System.out.println("Failed to compute frames for class: " + classNode.name + ", " + ex.getMessage());
-                    writer = new FixedClassWriter(this, ClassWriter.COMPUTE_MAXS);
-                    classNode.accept(writer);
-                    byte[] b = writer.toByteArray();
+                Collections.shuffle(classNode.methods);
+                Collections.shuffle(classNode.fields);
+            }
+
+            for (Transformer transformer : transformers) {
+                transformer.runAfter();
+            }
+
+            System.out.println("Writing classes...");
+
+            for (ClassNode classNode : classes) {
+
+                byte[] b = generated.getOrDefault(classNode.name, null);
+
+                if (b == null) {
+                    FixedClassWriter writer = new FixedClassWriter(this, ClassWriter.COMPUTE_FRAMES);
+                    try {
+                        classNode.accept(writer);
+                        b = writer.toByteArray();
+                    } catch (Exception ex) {
+                        System.out.println("Failed to compute frames for class: " + classNode.name + ", " + ex.getMessage());
+                        writer = new FixedClassWriter(this, ClassWriter.COMPUTE_MAXS);
+                        classNode.accept(writer);
+                        b = writer.toByteArray();
+                    }
+                }
+
+                if (b != null) {
                     out.putNextEntry(new JarEntry(classNode.name + ".class"));
                     out.write(b);
                 }
@@ -331,5 +345,9 @@ public class Obf implements Opcodes {
 
     public Manifest getManifest() {
         return manifest;
+    }
+
+    public void addGeneratedClass(String name, byte[] b) {
+        generated.put(name, b);
     }
 }

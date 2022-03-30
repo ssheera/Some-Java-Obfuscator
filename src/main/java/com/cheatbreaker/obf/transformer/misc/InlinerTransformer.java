@@ -3,10 +3,12 @@ package com.cheatbreaker.obf.transformer.misc;
 import com.cheatbreaker.obf.Obf;
 import com.cheatbreaker.obf.transformer.Transformer;
 import com.cheatbreaker.obf.utils.asm.AsmUtils;
-import com.cheatbreaker.obf.utils.configuration.ConfigurationSection;
 import com.cheatbreaker.obf.utils.pair.ClassMethodNode;
+import lombok.SneakyThrows;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
+import org.objectweb.asm.tree.analysis.Analyzer;
+import org.objectweb.asm.tree.analysis.BasicInterpreter;
 
 import java.lang.reflect.Modifier;
 import java.util.*;
@@ -27,47 +29,74 @@ public class InlinerTransformer extends Transformer {
         this.maxPasses = config.getInt("maxPasses", 5);
     }
 
+    private final Map<ClassMethodNode, Integer> passes = new HashMap<>();
+
     @Override
     public void visit(ClassNode classNode) {
-
-        Map<ClassMethodNode, Integer> passes = new HashMap<>();
 
         while (true) {
             boolean change = false;
 
             for (MethodNode method : classNode.methods) {
-                ClassMethodNode cmn = new ClassMethodNode(classNode, method);
-                if (excluded.contains(cmn.toString())) continue;
-                passes.put(cmn, passes.getOrDefault(cmn, 0) + 1);
-                if (passes.get(cmn) > maxPasses) continue;
-                for (AbstractInsnNode instruction : method.instructions) {
-                    if (instruction instanceof MethodInsnNode) {
-                        if (instruction.getOpcode() != INVOKESPECIAL &&
-                                instruction.getOpcode() != INVOKEINTERFACE) {
-                            MethodInsnNode node = (MethodInsnNode) instruction;
-                            ClassNode owner = obf.assureLoaded(node.owner);
-                            if (owner == null) continue;
-                            MethodNode target = AsmUtils.findMethod(owner, node.name, node.desc);
-                            if (target != null && canInline(classNode, target)) {
-                                if (AsmUtils.codeSize(target) + AsmUtils.codeSize(method) >= AsmUtils.MAX_INSTRUCTIONS)
-                                    continue;
-                                inline(target, method, instruction);
-                                ClassMethodNode pair = new ClassMethodNode(owner, target);
-                                if (!inlinedMethods.contains(pair) && obf.getClasses().contains(owner))
-                                    inlinedMethods.add(pair);
-                                change = true;
-                            }
-                        }
-                    }
-                }
+                change = change || visitMethod(classNode, method);
             }
 
             if (!change) break;
         }
     }
 
-    @Override
-    public void after() {
+    @SneakyThrows
+    public boolean visitMethod(ClassNode classNode, MethodNode method) {
+        boolean change = false;
+        if (target == null || target.equals(new ClassMethodNode(classNode, method))) {
+            ClassMethodNode cmn = new ClassMethodNode(classNode, method);
+            if (excluded.contains(cmn.toString())) return false;
+            passes.put(cmn, passes.getOrDefault(cmn, 0) + 1);
+            if (passes.get(cmn) > maxPasses) return false;
+            for (AbstractInsnNode instruction : method.instructions) {
+                if (instruction instanceof MethodInsnNode) {
+                    if (instruction.getOpcode() != INVOKESPECIAL &&
+                            instruction.getOpcode() != INVOKEINTERFACE) {
+                        MethodInsnNode node = (MethodInsnNode) instruction;
+                        ClassNode owner = obf.assureLoaded(node.owner);
+                        if (owner == null) continue;
+                        MethodNode target = AsmUtils.findMethod(owner, node.name, node.desc);
+                        if (target != null && canInline(classNode, target)) {
+                            if (AsmUtils.codeSize(target) + AsmUtils.codeSize(method) >= AsmUtils.MAX_INSTRUCTIONS)
+                                continue;
+
+                            List<TryCatchBlockNode> cachedTrys = new ArrayList<>(method.tryCatchBlocks);
+                            AbstractInsnNode[] cachedInsns = method.instructions.toArray();
+
+                            try {
+                                inline(target, method, node);
+                                Analyzer<?> analyzer = new Analyzer<>(new BasicInterpreter());
+                                analyzer.analyzeAndComputeMaxs(classNode.name, method);
+                                change = true;
+                            } catch (Exception ex) {
+                                // Failed to inline
+                                error("Failed to inline method %s.%s%s", node.owner, node.name, node.desc);
+                                method.tryCatchBlocks = cachedTrys;
+                                method.instructions.clear();
+                                for (AbstractInsnNode cachedInsn : cachedInsns) {
+                                    method.instructions.add(cachedInsn);
+                                }
+                            }
+
+//                            ClassMethodNode pair = new ClassMethodNode(owner, target);
+//                            if (!inlinedMethods.contains(pair) && obf.getClasses().contains(owner))
+//                                inlinedMethods.add(pair);
+                        }
+                    }
+                }
+            }
+        }
+
+        return change;
+    }
+
+//    @Override
+//    protected void after() {
 //        LinkedList<ClassMethodNode> toRemove = new LinkedList<>(inlinedMethods);
 //        for (ClassNode classNode : obf.getClasses()) {
 //            for (MethodNode method : classNode.methods) {
@@ -91,7 +120,7 @@ public class InlinerTransformer extends Transformer {
 //        for (ClassMethodNode classMethodNode : toRemove) {
 //            classMethodNode.getClassNode().methods.remove(classMethodNode.getMethodNode());
 //        }
-    }
+//    }
 
     public boolean canInline(ClassNode classNode, MethodNode method) {
         if (method.instructions.size() <= 0) return false;
@@ -175,7 +204,9 @@ public class InlinerTransformer extends Transformer {
         }
 
         LabelNode end = new LabelNode();
+
         InsnList list = new InsnList();
+
         for (AbstractInsnNode insn : toInline) {
             if (insn instanceof InsnNode) {
                 if (insn.getOpcode() >= IRETURN && insn.getOpcode() <= RETURN) {
@@ -222,6 +253,5 @@ public class InlinerTransformer extends Transformer {
 
         toInlineInto.insert(target, list);
         toInlineInto.remove(target);
-
     }
 }

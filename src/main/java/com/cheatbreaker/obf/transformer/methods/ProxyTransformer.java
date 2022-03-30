@@ -4,6 +4,7 @@ import com.cheatbreaker.obf.Obf;
 import com.cheatbreaker.obf.transformer.Transformer;
 import com.cheatbreaker.obf.utils.asm.AsmUtils;
 import com.cheatbreaker.obf.utils.configuration.ConfigurationSection;
+import com.cheatbreaker.obf.utils.pair.ClassMethodNode;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.SneakyThrows;
@@ -43,72 +44,89 @@ public class ProxyTransformer extends Transformer {
         List<RedirectedCall> redirectedCalls = new ArrayList<>();
 
         FieldNode f = new FieldNode(ACC_PRIVATE | ACC_STATIC,
-                RandomStringUtils.randomAlphabetic(2), "[Ljava/lang/invoke/MethodHandle;", null, null);
+                RandomStringUtils.randomAlphabetic(4), "[Ljava/lang/invoke/MethodHandle;", null, null);
 
         for (MethodNode method : classNode.methods) {
-            for (AbstractInsnNode instruction : method.instructions) {
-                if (instruction instanceof MethodInsnNode) {
-                    MethodInsnNode node = (MethodInsnNode) instruction;
-                    if (node.owner.startsWith("L") && node.owner.endsWith(";") && node.owner.length() > 1) continue;
-                    MethodCall mc = new MethodCall(node.name, node.owner, node.desc, node.getOpcode());
 
-                    ClassNode nodeOwner = obf.assureLoaded(node.owner);
-                    if (nodeOwner == null) continue;
+            if (target == null || target.equals(new ClassMethodNode(classNode, method))) {
+                for (AbstractInsnNode instruction : method.instructions) {
+                    if (instruction instanceof MethodInsnNode) {
+                        MethodInsnNode node = (MethodInsnNode) instruction;
+                        if (node.owner.startsWith("L") && node.owner.endsWith(";") && node.owner.length() > 1) continue;
+                        MethodCall mc = new MethodCall(node.name, node.owner, node.desc, node.getOpcode());
 
-                    if (!Modifier.isPublic(nodeOwner.access)) continue;
+                        ClassNode nodeOwner = obf.assureLoaded(node.owner);
+                        if (nodeOwner == null) continue;
 
-                    if (node.getOpcode() == INVOKESPECIAL) {
-                        if (!inline) continue;
-                        if (!node.owner.equals(classNode.superName)) {
-                            AbstractInsnNode prev = node.getPrevious();
-                            while (prev != null) {
-                                if (prev instanceof TypeInsnNode) {
-                                    if (prev.getNext() instanceof InsnNode) {
-                                        if (((TypeInsnNode) prev).desc.equals(node.owner)) {
-                                            if (prev.getNext().getOpcode() == DUP) {
+                        if (!Modifier.isPublic(nodeOwner.access)) continue;
 
-                                                if (!redirectedCalls.contains(mc)) redirectedCalls.add(mc);
+                        if (node.getOpcode() == INVOKESPECIAL) {
+                            if (!inline) continue;
+                            if (!node.owner.equals(classNode.superName)) {
+                                AbstractInsnNode prev = node.getPrevious();
+                                while (prev != null) {
+                                    if (prev instanceof TypeInsnNode) {
+                                        if (prev.getNext() instanceof InsnNode) {
+                                            if (((TypeInsnNode) prev).desc.equals(node.owner)) {
+                                                if (prev.getNext().getOpcode() == DUP) {
 
-                                                InsnList list = new InsnList();
-                                                int index = redirectedCalls.indexOf(mc);
-                                                list.add(new FieldInsnNode(GETSTATIC, classNode.name, f.name, f.desc));
-                                                list.add(AsmUtils.pushInt(index));
-                                                list.add(new InsnNode(AALOAD));
+                                                    if (!redirectedCalls.contains(mc)) redirectedCalls.add(mc);
 
-                                                method.instructions.remove(prev.getNext());
-                                                method.instructions.insertBefore(prev, list);
-                                                method.instructions.remove(prev);
+                                                    InsnList list = new InsnList();
+                                                    int index = redirectedCalls.indexOf(mc);
+                                                    list.add(new FieldInsnNode(GETSTATIC, classNode.name, f.name, f.desc));
+                                                    list.add(AsmUtils.pushInt(index));
+                                                    list.add(new InsnNode(AALOAD));
 
-                                                list = new InsnList();
-                                                Set<String> parents = obf.getClassTree(node.owner).parentClasses;
-                                                String parent = parents.toArray()[random.nextInt(parents.size())].toString();
-                                                list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", node.desc.replace(")V", ")L" + parent + ";"), false));
-                                                list.add(new TypeInsnNode(CHECKCAST, node.owner));
-                                                method.instructions.insertBefore(node, list);
-                                                method.instructions.remove(node);
-                                                break;
+                                                    method.instructions.remove(prev.getNext());
+                                                    method.instructions.insertBefore(prev, list);
+                                                    method.instructions.remove(prev);
+
+                                                    list = new InsnList();
+
+                                                    list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", node.desc.replace(")V", ")Ljava/lang/Object;"), false));
+                                                    list.add(new TypeInsnNode(CHECKCAST, node.owner));
+                                                    method.instructions.insertBefore(node, list);
+                                                    method.instructions.remove(node);
+                                                    break;
+                                                }
                                             }
                                         }
                                     }
+                                    prev = prev.getPrevious();
                                 }
-                                prev = prev.getPrevious();
                             }
-                        }
-                    } else if (node.getOpcode() == INVOKESTATIC) {
-                        int totalStackSize = Type.getArgumentTypes(node.desc).length;
+                        } else if (node.getOpcode() == INVOKESTATIC) {
+                            int totalStackSize = Type.getArgumentTypes(node.desc).length;
 
-                        if (totalStackSize == 0) {
-                            if (!inline) continue;
-                            InsnList list = new InsnList();
-                            list.add(new FieldInsnNode(GETSTATIC, classNode.name, f.name, f.desc));
-                            if (!redirectedCalls.contains(mc)) redirectedCalls.add(mc);
-                            int index = redirectedCalls.indexOf(mc);
-                            list.add(AsmUtils.pushInt(index));
-                            list.add(new InsnNode(AALOAD));
-                            list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", node.desc, false));
+                            if (totalStackSize == 0) {
+                                if (!inline) continue;
+                                InsnList list = new InsnList();
+                                list.add(new FieldInsnNode(GETSTATIC, classNode.name, f.name, f.desc));
+                                if (!redirectedCalls.contains(mc)) redirectedCalls.add(mc);
+                                int index = redirectedCalls.indexOf(mc);
+                                list.add(AsmUtils.pushInt(index));
+                                list.add(new InsnNode(AALOAD));
+                                list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", node.desc, false));
 
-                            method.instructions.insertBefore(node, list);
-                            method.instructions.remove(node);
+                                method.instructions.insertBefore(node, list);
+                                method.instructions.remove(node);
+                            } else {
+                                if (!redirections) continue;
+                                if (!redirectedCalls.contains(mc)) redirectedCalls.add(mc);
+                                if (!proxyCalls.contains(mc)) proxyCalls.add(mc);
+                                proxyCallName.putIfAbsent(mc, RandomStringUtils.randomAlphabetic(4));
+                                String desc = mc.descriptor;
+                                Type[] args = Type.getArgumentTypes(desc);
+                                Type[] newArgs = new Type[args.length];
+                                for (int i = 0; i < args.length; i++) {
+                                    String d = args[i].getDescriptor();
+                                    newArgs[i] = d.endsWith(";") && d.startsWith("L") ?
+                                            Type.getType("Ljava/lang/Object;") : args[i];
+                                }
+                                desc = Type.getMethodDescriptor(Type.getReturnType(desc), newArgs);
+                                method.instructions.set(node, new MethodInsnNode(INVOKESTATIC, classNode.name, proxyCallName.get(mc), desc));
+                            }
                         } else {
                             if (!redirections) continue;
                             if (!redirectedCalls.contains(mc)) redirectedCalls.add(mc);
@@ -123,95 +141,35 @@ public class ProxyTransformer extends Transformer {
                                         Type.getType("Ljava/lang/Object;") : args[i];
                             }
                             desc = Type.getMethodDescriptor(Type.getReturnType(desc), newArgs);
+                            desc = desc.replace("(", "(Ljava/lang/Object;");
                             method.instructions.set(node, new MethodInsnNode(INVOKESTATIC, classNode.name, proxyCallName.get(mc), desc));
                         }
-                    } else {
-                        if (!redirections) continue;
-                        if (!redirectedCalls.contains(mc)) redirectedCalls.add(mc);
-                        if (!proxyCalls.contains(mc)) proxyCalls.add(mc);
-                        proxyCallName.putIfAbsent(mc, RandomStringUtils.randomAlphabetic(4));
-                        String desc = mc.descriptor;
-                        Type[] args = Type.getArgumentTypes(desc);
-                        Type[] newArgs = new Type[args.length];
-                        for (int i = 0; i < args.length; i++) {
-                            String d = args[i].getDescriptor();
-                            newArgs[i] = d.endsWith(";") && d.startsWith("L") ?
-                                    Type.getType("Ljava/lang/Object;") : args[i];
-                        }
-                        desc = Type.getMethodDescriptor(Type.getReturnType(desc), newArgs);
-                        desc = desc.replace("(", "(Ljava/lang/Object;");
-                        method.instructions.set(node, new MethodInsnNode(INVOKESTATIC, classNode.name, proxyCallName.get(mc), desc));
-                    }
-                } else if (instruction instanceof FieldInsnNode) {
-                    FieldInsnNode node = (FieldInsnNode) instruction;
-                    FieldCall fgc = new FieldCall(node.owner, node.name, node.desc, node.getOpcode() == GETFIELD || node.getOpcode() == PUTFIELD,
-                            node.getOpcode() == PUTFIELD || node.getOpcode() == PUTSTATIC);
+                    } else if (instruction instanceof FieldInsnNode) {
+                        FieldInsnNode node = (FieldInsnNode) instruction;
+                        FieldCall fgc = new FieldCall(node.owner, node.name, node.desc, node.getOpcode() == GETFIELD || node.getOpcode() == PUTFIELD,
+                                node.getOpcode() == PUTFIELD || node.getOpcode() == PUTSTATIC);
 
-                    if (node.getOpcode() == GETSTATIC) {
-                        if (!inline) continue;
-                        InsnList list = new InsnList();
-                        list.add(new FieldInsnNode(GETSTATIC, classNode.name, f.name, f.desc));
-                        if (!redirectedCalls.contains(fgc)) redirectedCalls.add(fgc);
-                        int index = redirectedCalls.indexOf(fgc);
-                        list.add(AsmUtils.pushInt(index));
-                        list.add(new InsnNode(AALOAD));
-                        String desc = "Ljava/lang/Object;";
-                        if (!node.desc.startsWith("L") || !node.desc.endsWith(";")) {
-                            desc = node.desc;
-                        }
-                        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", "()" + desc, false));
-                        if (desc.equals("Ljava/lang/Object;")) {
-                            list.add(new TypeInsnNode(CHECKCAST, node.desc));
-                        }
-                        method.instructions.insertBefore(node, list);
-                        method.instructions.remove(node);
-
-                    } else if (node.getOpcode() == GETFIELD) {
-                        if (!redirections) continue;
-                        if (!redirectedCalls.contains(fgc)) redirectedCalls.add(fgc);
-                        if (!proxyCalls.contains(fgc)) proxyCalls.add(fgc);
-                        proxyCallName.putIfAbsent(fgc, RandomStringUtils.randomAlphabetic(4));
-                        String desc = "Ljava/lang/Object;";
-                        if (!node.desc.startsWith("L") || !node.desc.endsWith(";")) {
-                            desc = node.desc;
-                        }
-                        InsnList list = new InsnList();
-                        list.add(new MethodInsnNode(INVOKESTATIC, classNode.name, proxyCallName.get(fgc), "(Ljava/lang/Object;)" + desc));
-                        if (desc.equals("Ljava/lang/Object;")) {
-                            list.add(new TypeInsnNode(CHECKCAST, node.desc));
-                        }
-                        method.instructions.insertBefore(node, list);
-                        method.instructions.remove(node);
-                    } else {
-                        FieldNode fieldNode = AsmUtils.findField(classNode, node.name, node.desc);
-                        if (fieldNode == null) continue;
-
-                        if (node.getOpcode() == PUTSTATIC) {
+                        if (node.getOpcode() == GETSTATIC) {
                             if (!inline) continue;
-
-                            if (Modifier.isFinal(fieldNode.access))
-                                fieldNode.access &= ~Modifier.FINAL;
-
                             InsnList list = new InsnList();
                             list.add(new FieldInsnNode(GETSTATIC, classNode.name, f.name, f.desc));
                             if (!redirectedCalls.contains(fgc)) redirectedCalls.add(fgc);
                             int index = redirectedCalls.indexOf(fgc);
                             list.add(AsmUtils.pushInt(index));
                             list.add(new InsnNode(AALOAD));
-                            list.add(new InsnNode(SWAP));
-                            method.instructions.insertBefore(node, list);
-
                             String desc = "Ljava/lang/Object;";
                             if (!node.desc.startsWith("L") || !node.desc.endsWith(";")) {
                                 desc = node.desc;
                             }
-                            method.instructions.set(node, new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", "(" + desc + ")V", false));
-                        } else {
+                            list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", "()" + desc, false));
+                            if (desc.equals("Ljava/lang/Object;")) {
+                                list.add(new TypeInsnNode(CHECKCAST, node.desc));
+                            }
+                            method.instructions.insertBefore(node, list);
+                            method.instructions.remove(node);
+
+                        } else if (node.getOpcode() == GETFIELD) {
                             if (!redirections) continue;
-
-                            if (Modifier.isFinal(fieldNode.access))
-                                fieldNode.access &= ~Modifier.FINAL;
-
                             if (!redirectedCalls.contains(fgc)) redirectedCalls.add(fgc);
                             if (!proxyCalls.contains(fgc)) proxyCalls.add(fgc);
                             proxyCallName.putIfAbsent(fgc, RandomStringUtils.randomAlphabetic(4));
@@ -219,8 +177,53 @@ public class ProxyTransformer extends Transformer {
                             if (!node.desc.startsWith("L") || !node.desc.endsWith(";")) {
                                 desc = node.desc;
                             }
-                            method.instructions.set(node, new MethodInsnNode(INVOKESTATIC, classNode.name, proxyCallName.get(fgc), "(Ljava/lang/Object;" +
-                                    desc + ")V"));
+                            InsnList list = new InsnList();
+                            list.add(new MethodInsnNode(INVOKESTATIC, classNode.name, proxyCallName.get(fgc), "(Ljava/lang/Object;)" + desc));
+                            if (desc.equals("Ljava/lang/Object;")) {
+                                list.add(new TypeInsnNode(CHECKCAST, node.desc));
+                            }
+                            method.instructions.insertBefore(node, list);
+                            method.instructions.remove(node);
+                        } else {
+                            FieldNode fieldNode = AsmUtils.findField(classNode, node.name, node.desc);
+                            if (fieldNode == null) continue;
+
+                            if (node.getOpcode() == PUTSTATIC) {
+                                if (!inline) continue;
+
+                                if (Modifier.isFinal(fieldNode.access))
+                                    fieldNode.access &= ~Modifier.FINAL;
+
+                                InsnList list = new InsnList();
+                                list.add(new FieldInsnNode(GETSTATIC, classNode.name, f.name, f.desc));
+                                if (!redirectedCalls.contains(fgc)) redirectedCalls.add(fgc);
+                                int index = redirectedCalls.indexOf(fgc);
+                                list.add(AsmUtils.pushInt(index));
+                                list.add(new InsnNode(AALOAD));
+                                list.add(new InsnNode(SWAP));
+                                method.instructions.insertBefore(node, list);
+
+                                String desc = "Ljava/lang/Object;";
+                                if (!node.desc.startsWith("L") || !node.desc.endsWith(";")) {
+                                    desc = node.desc;
+                                }
+                                method.instructions.set(node, new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", "(" + desc + ")V", false));
+                            } else {
+                                if (!redirections) continue;
+
+                                if (Modifier.isFinal(fieldNode.access))
+                                    fieldNode.access &= ~Modifier.FINAL;
+
+                                if (!redirectedCalls.contains(fgc)) redirectedCalls.add(fgc);
+                                if (!proxyCalls.contains(fgc)) proxyCalls.add(fgc);
+                                proxyCallName.putIfAbsent(fgc, RandomStringUtils.randomAlphabetic(4));
+                                String desc = "Ljava/lang/Object;";
+                                if (!node.desc.startsWith("L") || !node.desc.endsWith(";")) {
+                                    desc = node.desc;
+                                }
+                                method.instructions.set(node, new MethodInsnNode(INVOKESTATIC, classNode.name, proxyCallName.get(fgc), "(Ljava/lang/Object;" +
+                                        desc + ")V"));
+                            }
                         }
                     }
                 }

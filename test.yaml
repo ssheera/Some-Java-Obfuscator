@@ -1,0 +1,33 @@
+input: eval.jar
+output: output.jar
+libs: []
+
+general:
+  strip:
+    enabled: true
+    excluded: []
+    iterations: 1
+misc:
+  vars:
+    enabled: true
+    excluded: []
+    iterations: 1
+  inliner:
+    # Can take a long time if jar is large
+    enabled: true
+    excluded: []
+    iterations: 1
+    maxPasses: 10
+    remove-unused-methods: true
+    change-access: true # Changes field & method access to public (if it can be modified), so it can be inlined
+  checksum:
+    # Make sure it is used at the end or other tools/transformers will break it
+    enabled: true
+    excluded: []
+    iterations: 1
+    randomHolders: true
+    holders: []
+    targets:
+      - dev/sim0n/evaluator/Main
+    reobf: true
+    methodName: "lambda$a$0"

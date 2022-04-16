@@ -1,10 +1,12 @@
 package com.cheatbreaker.obf;
 
+import com.cheatbreaker.obf.transformer.Transformer;
+import com.cheatbreaker.obf.transformer.general.StripTransformer;
 import com.cheatbreaker.obf.transformer.misc.ChecksumTransformer;
 import com.cheatbreaker.obf.transformer.misc.InlinerTransformer;
-import com.cheatbreaker.obf.transformer.methods.ProxyTransformer;
-import com.cheatbreaker.obf.transformer.Transformer;
-import com.cheatbreaker.obf.utils.asm.FixedClassWriter;
+import com.cheatbreaker.obf.transformer.misc.VariableTransformer;
+import com.cheatbreaker.obf.utils.asm.ClassWrapper;
+import com.cheatbreaker.obf.utils.asm.ContextClassWriter;
 import com.cheatbreaker.obf.utils.configuration.file.YamlConfiguration;
 import com.cheatbreaker.obf.utils.tree.ClassTree;
 import lombok.Getter;
@@ -12,13 +14,15 @@ import org.apache.commons.io.IOUtils;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.MethodNode;
+import org.reflections.Reflections;
+import sun.util.calendar.BaseCalendar;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Method;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.jar.JarEntry;
@@ -37,10 +41,10 @@ public class Obf implements Opcodes {
     private static Obf instance;
 
     private final ThreadLocalRandom random;
-    private final List<ClassNode> classes = new ArrayList<>();
-    private final List<ClassNode> libs = new ArrayList<>(65525);
+    private final List<ClassWrapper> classes = new ArrayList<>();
+    private final List<ClassWrapper> libs = new ArrayList<>(65525);
     private final List<Transformer> transformers = new ArrayList<>();
-    private final List<ClassNode> newClasses = new ArrayList<>();
+    private final List<ClassWrapper> newClasses = new ArrayList<>();
     private final YamlConfiguration config;
     private final HashMap<String, byte[]> resources = new HashMap<>();
     private final HashMap<String, byte[]> generated = new HashMap<>();
@@ -75,8 +79,8 @@ public class Obf implements Opcodes {
                 byte[] bytes = IOUtils.toByteArray(in);
                 if (entry.getName().endsWith(".class")) {
                     ClassReader reader = new ClassReader(bytes);
-                    ClassNode classNode = new ClassNode();
-                    reader.accept(classNode, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
+                    ClassWrapper classNode = new ClassWrapper(!lib);
+                    reader.accept(classNode, ClassReader.SKIP_FRAMES);
                     if (lib) libs.add(classNode); else classes.add(classNode);
                 } else {
                     if (!lib) resources.put(entry.getName(), bytes);
@@ -105,10 +109,10 @@ public class Obf implements Opcodes {
 
     public void loadHierachy() {
         Set<String> processed = new HashSet<>();
-        LinkedList<ClassNode> toLoad = new LinkedList<>(this.classes);
+        LinkedList<ClassWrapper> toLoad = new LinkedList<>(this.classes);
         toLoad.addAll(libs);
         while (!toLoad.isEmpty()) {
-            for (ClassNode toProcess : loadHierachy(toLoad.poll())) {
+            for (ClassWrapper toProcess : loadHierachy(toLoad.poll())) {
                 if (processed.add(toProcess.name)) {
                     toLoad.add(toProcess);
                 }
@@ -129,27 +133,28 @@ public class Obf implements Opcodes {
         return this.hierachy.computeIfAbsent(name, ClassTree::new);
     }
 
-    public List<ClassNode> loadHierachy(ClassNode specificNode) {
+    public List<ClassWrapper> loadHierachy(ClassWrapper specificNode) {
         if (specificNode.name.equals("java/lang/Object")) {
             return Collections.emptyList();
         }
-        List<ClassNode> toProcess = new ArrayList<>();
+        List<ClassWrapper> toProcess = new ArrayList<>();
 
         ClassTree thisTree = getOrCreateClassTree(specificNode.name);
-        ClassNode superClass;
+        ClassWrapper superClass;
 
         superClass = assureLoaded(specificNode.superName);
 
         if (superClass == null) {
             throw new IllegalArgumentException("Could not load " + specificNode.name);
         }
+
         ClassTree superTree = getOrCreateClassTree(superClass.name);
         superTree.subClasses.add(specificNode.name);
         thisTree.parentClasses.add(superClass.name);
         toProcess.add(superClass);
 
         for (String interfaceReference : specificNode.interfaces) {
-            ClassNode interfaceNode = assureLoaded(interfaceReference);
+            ClassWrapper interfaceNode = assureLoaded(interfaceReference);
             if (interfaceNode == null) {
                 throw new IllegalArgumentException("Could not load " + interfaceReference);
             }
@@ -161,12 +166,12 @@ public class Obf implements Opcodes {
         return toProcess;
     }
 
-    public void loadHierachyAll(ClassNode classNode) {
+    public void loadHierachyAll(ClassWrapper classNode) {
         Set<String> processed = new HashSet<>();
-        LinkedList<ClassNode> toLoad = new LinkedList<>();
+        LinkedList<ClassWrapper> toLoad = new LinkedList<>();
         toLoad.add(classNode);
         while (!toLoad.isEmpty()) {
-            for (ClassNode toProcess : loadHierachy(toLoad.poll())) {
+            for (ClassWrapper toProcess : loadHierachy(toLoad.poll())) {
                 if (processed.add(toProcess.name)) {
                     toLoad.add(toProcess);
                 }
@@ -232,46 +237,50 @@ public class Obf implements Opcodes {
 
         random = ThreadLocalRandom.current();
 
-        transformers.add(new InlinerTransformer(this));
-        transformers.add(new ProxyTransformer(this));
+        Reflections reflections = new Reflections("com.cheatbreaker.obf.transformer");
+
+        System.out.println("Loading transformers...");
+
+        transformers.add(new StripTransformer(this));
         transformers.add(new ChecksumTransformer(this));
+        transformers.add(new InlinerTransformer(this));
+        transformers.add(new VariableTransformer(this));
+
+        long start = System.currentTimeMillis();
 
         try (JarOutputStream out = new JarOutputStream(new FileOutputStream(outputFile))) {
 
             System.out.println("Transforming classes...");
+
             for (Transformer transformer : transformers) {
-                System.out.println("Running " + transformer.getClass().getSimpleName() + "...");
+                if (!transformer.enabled) continue;
                 classes.forEach((transformer::run));
             }
 
-            for (ClassNode classNode : classes) {
-                classNode.sourceFile = null;
-                classNode.sourceDebug = null;
-                classNode.innerClasses.clear();
-                for (MethodNode method : classNode.methods)
-                    method.localVariables = null;
-                Collections.shuffle(classNode.methods);
-                Collections.shuffle(classNode.fields);
-            }
-
             for (Transformer transformer : transformers) {
+                if (!transformer.enabled) continue;
+                try {
+                    transformer.getClass().getDeclaredMethod("after");
+                } catch (NoSuchMethodException e) {
+                    continue;
+                }
                 transformer.runAfter();
             }
 
             System.out.println("Writing classes...");
 
-            for (ClassNode classNode : classes) {
+            for (ClassWrapper classNode : classes) {
 
                 byte[] b = generated.getOrDefault(classNode.name, null);
 
                 if (b == null) {
-                    FixedClassWriter writer = new FixedClassWriter(this, ClassWriter.COMPUTE_FRAMES);
+                    ContextClassWriter writer = new ContextClassWriter(ClassWriter.COMPUTE_FRAMES);
                     try {
                         classNode.accept(writer);
                         b = writer.toByteArray();
                     } catch (Exception ex) {
                         System.out.println("Failed to compute frames for class: " + classNode.name + ", " + ex.getMessage());
-                        writer = new FixedClassWriter(this, ClassWriter.COMPUTE_MAXS);
+                        writer = new ContextClassWriter(ClassWriter.COMPUTE_MAXS);
                         classNode.accept(writer);
                         b = writer.toByteArray();
                     }
@@ -284,8 +293,8 @@ public class Obf implements Opcodes {
             }
 
             System.out.println("Writing generated classes...");
-            for (ClassNode classNode : newClasses) {
-                FixedClassWriter writer = new FixedClassWriter(this, ClassWriter.COMPUTE_FRAMES);
+            for (ClassWrapper classNode : newClasses) {
+                ContextClassWriter writer = new ContextClassWriter(ClassWriter.COMPUTE_FRAMES);
                 classNode.accept(writer);
                 out.putNextEntry(new JarEntry(classNode.name + ".class"));
                 out.write(writer.toByteArray());
@@ -305,7 +314,30 @@ public class Obf implements Opcodes {
 
             long difference = outputFile.length() - inputFile.length();
 
-            System.out.println("Output Size: " + (100L * difference / inputFile.length()) + "%");
+            boolean compressed = difference < 0;
+            Date epoch = new Date(0);
+            Date elapsed = Date.from(Instant.ofEpochMilli(System.currentTimeMillis() - start));
+
+            StringBuilder time = new StringBuilder();
+
+            int dh = elapsed.getHours() - epoch.getHours();
+            int dm = elapsed.getMinutes() - epoch.getMinutes();
+            int ds = elapsed.getSeconds() - epoch.getSeconds();
+
+            if (dh > 0)
+                time.append(dh).append("h ");
+            if (dm > 0)
+                time.append(dm).append("m ");
+            if (ds > 0)
+                time.append(ds).append("s ");
+            Method normalize = Date.class.getDeclaredMethod("normalize");
+            normalize.setAccessible(true);
+            BaseCalendar.Date date = (BaseCalendar.Date) normalize.invoke(elapsed);
+            time.append(date.getMillis()).append("ms");
+
+            System.out.printf("Size: %.2fKB -> %.2fKB (%s%s%%)\n",
+                     inputFile.length()/1024D, outputFile.length()/1024D, compressed ? "-" : "+", (100L * Math.abs(difference) / inputFile.length()));
+            System.out.printf("Elapsed: %s\n", time);
         }
     }
 
@@ -314,28 +346,28 @@ public class Obf implements Opcodes {
         return random;
     }
 
-    public List<ClassNode> getClasses() {
+    public List<ClassWrapper> getClasses() {
         return classes;
     }
 
-    public List<ClassNode> getLibs() {
+    public List<ClassWrapper> getLibs() {
         return libs;
     }
 
-    public List<ClassNode> getNewClasses() {
+    public List<ClassWrapper> getNewClasses() {
         return newClasses;
     }
 
-    public void addNewClass(ClassNode classNode) {
+    public void addNewClass(ClassWrapper classNode) {
         newClasses.add(classNode);
     }
 
-    public ClassNode assureLoaded(String owner) {
+    public ClassWrapper assureLoaded(String owner) {
         if (owner == null) return null;
-        for (ClassNode classNode : classes) {
+        for (ClassWrapper classNode : classes) {
             if (classNode.name.equals(owner)) return classNode;
         }
-        for (ClassNode classNode : libs) {
+        for (ClassWrapper classNode : libs) {
             if (classNode == null) continue;
             if (classNode.name.equals(owner)) return classNode;
         }
@@ -350,4 +382,5 @@ public class Obf implements Opcodes {
     public void addGeneratedClass(String name, byte[] b) {
         generated.put(name, b);
     }
+
 }

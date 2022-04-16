@@ -39,6 +39,7 @@ import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 public class AsmUtils implements Opcodes{
 
@@ -69,7 +70,7 @@ public class AsmUtils implements Opcodes{
         throw new IllegalArgumentException("insn is not a push int instruction");
     }
 
-    public static MethodNode getClinit(ClassNode classNode) {
+    public static MethodNode getClinit(ClassWrapper classNode) {
         for (MethodNode method : classNode.methods) {
             if (method.name.equals("<clinit>")) {
                 return method;
@@ -205,12 +206,12 @@ public class AsmUtils implements Opcodes{
     private static final TraceMethodVisitor methodPrinter = new TraceMethodVisitor(printer);
 
     public static FieldNode findField(Obf obf, String owner, String name, String desc) {
-        ClassNode classNode = obf.assureLoaded(owner);
+        ClassWrapper classNode = obf.assureLoaded(owner);
         if (classNode == null) return null;
         return findField(classNode, name, desc);
     }
 
-    public static FieldNode findField(ClassNode classNode, String name, String desc) {
+    public static FieldNode findField(ClassWrapper classNode, String name, String desc) {
         for (FieldNode field : classNode.fields) {
             if (field.name.equals(name) && (desc == null || field.desc.equals(desc))) {
                 return field;
@@ -229,12 +230,12 @@ public class AsmUtils implements Opcodes{
     }
 
     public static MethodNode findMethod(Obf obf, String owner, String name, String descriptor) {
-        ClassNode classNode = obf.assureLoaded(owner);
+        ClassWrapper classNode = obf.assureLoaded(owner);
         if (classNode == null) return null;
         return findMethod(classNode, name, descriptor);
     }
 
-    public static MethodNode findMethod(ClassNode classNode, String name, String descriptor) {
+    public static MethodNode findMethod(ClassWrapper classNode, String name, String descriptor) {
         for (MethodNode method : classNode.methods) {
             if (method.name.equals(name) && (descriptor == null || method.desc.equals(descriptor))) {
                 return method;
@@ -270,8 +271,8 @@ public class AsmUtils implements Opcodes{
         return list;
     }
 
-    public static ClassNode clone(ClassNode classNode) {
-        ClassNode c = new ClassNode();
+    public static ClassWrapper clone(ClassWrapper classNode) {
+        ClassWrapper c = new ClassWrapper(classNode.modify);
         classNode.accept(c);
         return c;
     }
@@ -315,5 +316,31 @@ public class AsmUtils implements Opcodes{
         MethodNode m = new MethodNode(access, name, desc, null, null);
         m.instructions = new InsnList();
         return m;
+    }
+
+    public static void boxReturn(Type returnType, InsnList list) {
+        Random r = new Random();
+        switch (returnType.getOpcode(IRETURN)) {
+            case IRETURN:
+                list.add(pushInt(r.nextInt()));
+                break;
+            case LRETURN:
+                list.add(pushLong(r.nextLong()));
+                break;
+            case FRETURN:
+                list.add(new LdcInsnNode(r.nextFloat()));
+                break;
+            case DRETURN:
+                list.add(new LdcInsnNode(r.nextDouble()));
+                break;
+            case ARETURN:
+                list.add(new InsnNode(ACONST_NULL));
+                break;
+            case RETURN:
+                list.add(new InsnNode(RETURN));
+                break;
+            default:
+                throw new IllegalArgumentException("Unknown return type: " + returnType);
+        }
     }
 }

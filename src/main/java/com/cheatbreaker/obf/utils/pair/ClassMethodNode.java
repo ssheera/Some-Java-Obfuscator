@@ -1,19 +1,19 @@
 package com.cheatbreaker.obf.utils.pair;
 
-import org.objectweb.asm.tree.ClassNode;
+import com.cheatbreaker.obf.utils.asm.ClassWrapper;
 import org.objectweb.asm.tree.MethodNode;
 
 public class ClassMethodNode {
 
-    private final ClassNode classNode;
+    private final ClassWrapper classNode;
     private final MethodNode methodNode;
 
-    public ClassMethodNode(ClassNode classNode, MethodNode methodNode) {
+    public ClassMethodNode(ClassWrapper classNode, MethodNode methodNode) {
         this.classNode = classNode;
         this.methodNode = methodNode;
     }
 
-    public ClassNode getClassNode() {
+    public ClassWrapper getClassWrapper() {
         return classNode;
     }
 
@@ -33,4 +33,8 @@ public class ClassMethodNode {
         return toString().equals(o.toString());
     }
 
+    @Override
+    public int hashCode() {
+        return toString().hashCode();
+    }
 }

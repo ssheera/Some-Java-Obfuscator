@@ -2,21 +2,23 @@ package com.cheatbreaker.obf.transformer.misc;
 
 import com.cheatbreaker.obf.Obf;
 import com.cheatbreaker.obf.transformer.Transformer;
-import com.cheatbreaker.obf.transformer.methods.ProxyTransformer;
 import com.cheatbreaker.obf.utils.asm.AsmUtils;
-import com.cheatbreaker.obf.utils.asm.FixedClassWriter;
-import com.cheatbreaker.obf.utils.configuration.NumberConversions;
+import com.cheatbreaker.obf.utils.asm.ClassWrapper;
+import com.cheatbreaker.obf.utils.asm.ContextClassWriter;
 import com.cheatbreaker.obf.utils.pair.ClassMethodNode;
 import lombok.SneakyThrows;
+import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.tree.*;
+import org.objectweb.asm.tree.MethodInsnNode;
+import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.analysis.Analyzer;
 import org.objectweb.asm.tree.analysis.BasicInterpreter;
 
-import java.lang.invoke.MethodHandles;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -28,17 +30,24 @@ public class ChecksumTransformer extends Transformer {
         this.targets = config.getStringList("targets");
         this.reobfTarget = config.getBoolean("reobf", true);
         this.holders = config.getStringList("holders");
+        this.randomHolders = config.getBoolean("randomHolders", false);
 
-    }
-
-    @Override
-    public void visit(ClassNode classNode) {
+        if (randomHolders) {
+            this.holders = new ArrayList<>();
+            for (ClassWrapper classNode : obf.getClasses()) {
+                if (targets.contains(classNode.name)) {
+                    continue;
+                }
+                holders.add(classNode.name);
+            }
+        }
 
     }
 
     private List<String> targets;
     private List<String> holders;
     private boolean reobfTarget;
+    private boolean randomHolders;
 
     @Override
     public String getSection() {
@@ -51,48 +60,84 @@ public class ChecksumTransformer extends Transformer {
 
         if (targets.isEmpty() || holders.isEmpty()) return;
 
-        for (String target : targets) {
-            for (String holder : holders) {
-                if (target.equals(holder)) {
-                    error("Target and holder are the same: {}",  target);
+        if (!randomHolders) {
+            for (String target : targets) {
+                for (String holder : holders) {
+                    if (target.equals(holder)) {
+                        error("Target and holder are the same: %s",  target);
+                    }
                 }
             }
         }
 
-        List<ClassNode> classNodes = new ArrayList<>(obf.getClasses());
+//        log("Targets: %s", targets);
+//        log("Holders: %s", randomHolders ? "All" : holders);
+
+        List<ClassWrapper> classNodes = new ArrayList<>(obf.getClasses());
         Collections.shuffle(classNodes);
 
-        for (ClassNode classNode : classNodes) {
+        boolean applied = false;
 
+        for (ClassWrapper classNode : classNodes) {
             if (targets.contains(classNode.name)) {
 
                 Collections.shuffle(holders);
                 String holderName = holders.get(0);
 
                 byte[] b;
-                FixedClassWriter writer = new FixedClassWriter(obf, ClassWriter.COMPUTE_FRAMES);
+                ContextClassWriter writer = new ContextClassWriter(ClassWriter.COMPUTE_FRAMES);
                 classNode.accept(writer);
                 b = writer.toByteArray();
 
                 obf.addGeneratedClass(classNode.name, b);
 
-                ClassNode holder = obf.assureLoaded(holderName);
+                ClassWrapper holder = obf.assureLoaded(holderName);
                 if (holder == null) {
                     error("Holder class not found: %s", holderName);
                 } else {
+                    log("Applying checksum to %s inside of %s", classNode.name, holderName);
+                    applied = true;
                     MethodNode checkMethod;
-                    String name = " ";
+                    String name = config.getString("methodName");
                     String desc = "()V";
-                    checkMethod = new MethodNode(ACC_STATIC | ACC_SYNTHETIC, name, desc, null, null);
+                    checkMethod = new MethodNode(ACC_PRIVATE | ACC_SYNTHETIC | ACC_STATIC, name, desc, null, null);
                     checkMethod.visitCode();
 
-                    long r1 = random.nextLong();
+                    Label label2 = new Label();
+
+                    int r1 = random.nextInt();
+                    int r2 = random.nextInt();
+
+                    int real = r1;
+
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    ByteArrayInputStream bais = new ByteArrayInputStream(b);
+
+                    byte[] byArray = new byte[4096];
+                    while (true) {
+                        int n = bais.read(byArray, 0, byArray.length);
+                        real ^= r2 ^ baos.size();
+                        if (n == -1) break;
+                        baos.write(byArray, 0, n);
+                    }
+
+                    int bStart = writer.offsetCPStart;
+                    int bEnd = writer.offsetMethodEnd;
+
+                    byte[] b2 = new byte[bEnd - bStart];
+                    System.arraycopy(b, bStart, b2, 0, b2.length);
+
+                    int hash = Arrays.hashCode(b2) ^ real;
+
+                    log("Hash: %d Start: %d End: %d", hash, bStart, bEnd);
 
                     checkMethod.visitLdcInsn(r1);
-                    checkMethod.visitVarInsn(LSTORE, 5);
+                    checkMethod.visitVarInsn(ISTORE, 5);
 
                     checkMethod.visitLdcInsn(Type.getType("L" + holder.name +  ";"));
-                    checkMethod.visitLdcInsn("/" + classNode.name + ".class");
+                    String s = "/" + classNode.name + ".class";
+                    checkMethod.visitLdcInsn(s);
+
                     checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Class", "getResourceAsStream", "(Ljava/lang/String;)Ljava/io/InputStream;", false);
                     checkMethod.visitVarInsn(ASTORE, 1);
                     checkMethod.visitTypeInsn(NEW, "java/io/ByteArrayOutputStream");
@@ -107,15 +152,19 @@ public class ChecksumTransformer extends Transformer {
                     checkMethod.visitInsn(ICONST_M1);
                     checkMethod.visitVarInsn(ALOAD, 1);
                     checkMethod.visitVarInsn(ALOAD, 3);
-                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/InputStream", "read", "([B)I", false);
-                    checkMethod.visitVarInsn(LLOAD, 5);
+                    checkMethod.visitInsn(ICONST_0);
+                    checkMethod.visitVarInsn(ALOAD, 3);
+                    checkMethod.visitInsn(ARRAYLENGTH);
+                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/InputStream", "read", "([BII)I", false);
 
-                    long r2 = random.nextLong();
-
+                    checkMethod.visitVarInsn(ILOAD, 5);
                     checkMethod.visitLdcInsn(r2);
-                    checkMethod.visitInsn(LXOR);
+                    checkMethod.visitVarInsn(ALOAD, 2);
+                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/ByteArrayOutputStream", "size", "()I", false);
+                    checkMethod.visitInsn(IXOR);
+                    checkMethod.visitInsn(IXOR);
 
-                    checkMethod.visitVarInsn(LSTORE, 5);
+                    checkMethod.visitVarInsn(ISTORE, 5);
 
                     checkMethod.visitInsn(DUP);
                     checkMethod.visitVarInsn(ISTORE, 4);
@@ -128,20 +177,29 @@ public class ChecksumTransformer extends Transformer {
                     checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/ByteArrayOutputStream", "write", "([BII)V", false);
                     checkMethod.visitJumpInsn(GOTO, label0);
                     checkMethod.visitLabel(label1);
+
                     checkMethod.visitVarInsn(ALOAD, 2);
-                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/ByteArrayOutputStream", "size", "()I", false);
+                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/ByteArrayOutputStream", "toByteArray", "()[B", false);
 
-                    for (long i = 0; i < Math.floorDiv(b.length, 4096); i++) {
-                        r1 ^= r2;
-                    }
+                    checkMethod.visitLdcInsn(bEnd - bStart);
+                    checkMethod.visitIntInsn(NEWARRAY, T_BYTE);
+                    checkMethod.visitVarInsn(ASTORE, 6);
 
-                    long len = b.length ^ r1;
+                    checkMethod.visitLdcInsn(bStart);
+                    checkMethod.visitVarInsn(ALOAD, 6);
+                    checkMethod.visitInsn(ICONST_0);
+                    checkMethod.visitVarInsn(ALOAD, 6);
+                    checkMethod.visitInsn(ARRAYLENGTH);
+                    checkMethod.visitMethodInsn(INVOKESTATIC, "java/lang/System", "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V", false);
 
-                    checkMethod.visitVarInsn(LLOAD, 5);
-                    checkMethod.visitLdcInsn(len);
-                    checkMethod.visitInsn(LXOR);
-                    checkMethod.visitInsn(L2I);
-                    Label label2 = new Label();
+                    checkMethod.visitVarInsn(ALOAD, 6);
+
+                    checkMethod.visitMethodInsn(INVOKESTATIC, "java/util/Arrays", "hashCode", "([B)I", false);
+
+                    checkMethod.visitVarInsn(ILOAD, 5);
+                    checkMethod.visitLdcInsn(hash);
+                    checkMethod.visitInsn(IXOR);
+
                     checkMethod.visitJumpInsn(IF_ICMPEQ, label2);
 
                     checkMethod.visitMethodInsn(INVOKESTATIC, "sun/misc/Launcher", "getLauncher", "()Lsun/misc/Launcher;", false);
@@ -182,15 +240,22 @@ public class ChecksumTransformer extends Transformer {
 
                     if (reobfTarget) {
                         for (Transformer transformer : obf.getTransformers()) {
+//                            boolean old = transformer.enabled;
+//                            transformer.enabled = true;
                             transformer.target = new ClassMethodNode(holder, checkMethod);
                             transformer.run(holder);
                             transformer.target = null;
+//                            transformer.enabled = old;
                         }
                     }
                 }
 
                 break;
             }
+        }
+
+        if (!applied) {
+            error("Could not find any targets and holders");
         }
     }
 }

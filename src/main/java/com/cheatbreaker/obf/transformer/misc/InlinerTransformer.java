@@ -34,7 +34,7 @@ public class InlinerTransformer extends Transformer {
         super(obf);
         this.maxPasses = config.getInt("maxPasses", 5);
         this.removal = config.getBoolean("remove-unused-methods", false);
-        this.changeAccess = config.getBoolean("change-access", true);
+        this.changeAccess = true;
     }
 
     private final Map<ClassMethodNode, Integer> passes = new HashMap<>();
@@ -44,14 +44,11 @@ public class InlinerTransformer extends Transformer {
 
         passes.remove(target);
 
-        while (true) {
-            boolean change = false;
-
-            for (MethodNode method : classNode.methods) {
-                change = change || visitMethod(classNode, method);
+        for (MethodNode method : classNode.methods) {
+            boolean change = true;
+            while (change) {
+                change = visitMethod(classNode, method);
             }
-
-            if (!change) break;
         }
     }
 
@@ -60,7 +57,6 @@ public class InlinerTransformer extends Transformer {
         boolean change = false;
         ClassMethodNode cmn = new ClassMethodNode(classNode, method);
         if (target == null || target.equals(cmn)) {
-            if (excluded.contains(cmn.toString())) return false;
             passes.put(cmn, passes.getOrDefault(cmn, 0) + 1);
             if (passes.get(cmn) > maxPasses) return false;
             for (AbstractInsnNode instruction : method.instructions) {
@@ -94,6 +90,7 @@ public class InlinerTransformer extends Transformer {
                                 inline(target, method, node);
                                 Analyzer<?> analyzer = new Analyzer<>(new BasicInterpreter());
                                 analyzer.analyzeAndComputeMaxs(classNode.name, method);
+
                                 change = true;
 
                                 ClassMethodNode pair = new ClassMethodNode(owner, target);
@@ -177,6 +174,7 @@ public class InlinerTransformer extends Transformer {
                 String owner = node.owner;
                 String name = node.name;
                 String desc = node.desc;
+                if (node.getOpcode() == INVOKESPECIAL && !name.equals("<init>")) return false;
                 ClassWrapper ownerClass = obf.assureLoaded(owner);
                 if (ownerClass == null) return false;
                 if (!Modifier.isPublic(ownerClass.access)) return false;
@@ -185,6 +183,9 @@ public class InlinerTransformer extends Transformer {
                 NodeAccess access = new NodeAccess(methodNode.access);
                 if (!checkAccess(access, classNode, ownerClass)) return false;
                 methodNode.access = access.access;
+            } else if (instruction instanceof InvokeDynamicInsnNode) {
+                InvokeDynamicInsnNode node = (InvokeDynamicInsnNode) instruction;
+                if (node.bsm.getOwner().contains("LambdaMetafactory")) return false;
             }
         }
         return true;
@@ -253,6 +254,7 @@ public class InlinerTransformer extends Transformer {
             toInline = list;
         }
 
+        LabelNode start = new LabelNode();
         LabelNode end = new LabelNode();
 
         InsnList list = new InsnList();
@@ -260,22 +262,30 @@ public class InlinerTransformer extends Transformer {
 //        int retVar = -1;
 //        Type retType = Type.getReturnType(toInlineMethod.desc);
 
+        int currentLocals = toInlineMethod.maxLocals;
+
         for (AbstractInsnNode insn : toInline) {
             if (insn instanceof InsnNode) {
                 if (insn.getOpcode() >= IRETURN && insn.getOpcode() <= RETURN) {
                     InsnList list2 = new InsnList();
+
 //                    if (insn.getOpcode() != RETURN) {
 //                        if (retVar == -1) {
 //                            retVar = toInlineMethod.maxLocals;
 //                        }
 //                        list2.add(new VarInsnNode(retType.getOpcode(ISTORE), retVar));
 //                    }
+
                     list2.add(new JumpInsnNode(GOTO, end));
+
                     toInline.insert(insn, list2);
                     toInline.remove(insn);
+
                 }
             }
         }
+
+        list.add(start);
 
         MethodInsnNode methodInsn = (MethodInsnNode) target;
         int locals = targetMethod.maxLocals;

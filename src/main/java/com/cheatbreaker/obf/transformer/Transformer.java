@@ -40,9 +40,13 @@ public abstract class Transformer implements Opcodes {
     protected final ConfigurationSection config;
     protected int iterations = 1;
 
+    public static boolean loadedNative;
+
     protected Vector<String> excluded = new Vector<>();
+    protected Vector<String> included = new Vector<>();
     public boolean enabled;
     public ClassMethodNode target;
+    public boolean canBeIterated = true;
 
     public abstract String getSection();
 
@@ -53,12 +57,19 @@ public abstract class Transformer implements Opcodes {
 
         this.enabled = config.getBoolean("enabled", true);
         this.excluded.addAll(config.getStringList("excluded"));
+        this.included.addAll(config.getStringList("included"));
         this.iterations = config.getInt("iterations", 1);
     }
 
 
     public void run(ClassWrapper classNode) {
         if (!enabled) return;
+        for (String s : excluded) {
+            if (classNode.name.startsWith(s)) return;
+        }
+        for (String s : included) {
+            if (!classNode.name.startsWith(s)) return;
+        }
         for (int i = 0; i < iterations; i++) {
             visit(classNode);
         }

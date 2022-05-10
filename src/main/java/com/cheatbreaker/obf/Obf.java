@@ -5,6 +5,7 @@ import com.cheatbreaker.obf.transformer.general.StripTransformer;
 import com.cheatbreaker.obf.transformer.misc.ChecksumTransformer;
 import com.cheatbreaker.obf.transformer.misc.InlinerTransformer;
 import com.cheatbreaker.obf.transformer.misc.VariableTransformer;
+import com.cheatbreaker.obf.transformer.strings.ToStringTransformer;
 import com.cheatbreaker.obf.utils.asm.ClassWrapper;
 import com.cheatbreaker.obf.utils.asm.ContextClassWriter;
 import com.cheatbreaker.obf.utils.configuration.file.YamlConfiguration;
@@ -14,7 +15,6 @@ import org.apache.commons.io.IOUtils;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
-import org.reflections.Reflections;
 import sun.util.calendar.BaseCalendar;
 
 import java.io.File;
@@ -77,7 +77,7 @@ public class Obf implements Opcodes {
             if (entry.isDirectory()) continue;
             try (InputStream in = inputJar.getInputStream(entry)) {
                 byte[] bytes = IOUtils.toByteArray(in);
-                if (entry.getName().endsWith(".class")) {
+                if (entry.getName().endsWith(".class") || entry.getName().endsWith(".class/")) {
                     ClassReader reader = new ClassReader(bytes);
                     ClassWrapper classNode = new ClassWrapper(!lib);
                     reader.accept(classNode, ClassReader.SKIP_FRAMES);
@@ -237,14 +237,13 @@ public class Obf implements Opcodes {
 
         random = ThreadLocalRandom.current();
 
-        Reflections reflections = new Reflections("com.cheatbreaker.obf.transformer");
-
         System.out.println("Loading transformers...");
 
         transformers.add(new StripTransformer(this));
         transformers.add(new ChecksumTransformer(this));
-        transformers.add(new InlinerTransformer(this));
+        transformers.add(new ToStringTransformer(this));
         transformers.add(new VariableTransformer(this));
+        transformers.add(new InlinerTransformer(this));
 
         long start = System.currentTimeMillis();
 
@@ -268,6 +267,9 @@ public class Obf implements Opcodes {
             }
 
             System.out.println("Writing classes...");
+
+            Collections.shuffle(newClasses, random);
+            Collections.shuffle(classes, random);
 
             for (ClassWrapper classNode : classes) {
 
@@ -295,7 +297,13 @@ public class Obf implements Opcodes {
             System.out.println("Writing generated classes...");
             for (ClassWrapper classNode : newClasses) {
                 ContextClassWriter writer = new ContextClassWriter(ClassWriter.COMPUTE_FRAMES);
-                classNode.accept(writer);
+                try {
+                    classNode.accept(writer);
+                } catch (Exception ex) {
+                    System.out.println("Failed to compute frames for class: " + classNode.name + ", " + ex.getMessage());
+                    writer = new ContextClassWriter(ClassWriter.COMPUTE_MAXS);
+                    classNode.accept(writer);
+                }
                 out.putNextEntry(new JarEntry(classNode.name + ".class"));
                 out.write(writer.toByteArray());
             }
@@ -335,8 +343,8 @@ public class Obf implements Opcodes {
             BaseCalendar.Date date = (BaseCalendar.Date) normalize.invoke(elapsed);
             time.append(date.getMillis()).append("ms");
 
-            System.out.printf("Size: %.2fKB -> %.2fKB (%s%s%%)\n",
-                     inputFile.length()/1024D, outputFile.length()/1024D, compressed ? "-" : "+", (100L * Math.abs(difference) / inputFile.length()));
+            System.out.printf("Size: %.2fKB -> %.2fKB (%s%.2f%%)\n",
+                     inputFile.length()/1024D, outputFile.length()/1024D, compressed ? "-" : "+", (100D * Math.abs((double) difference) / (double) inputFile.length()));
             System.out.printf("Elapsed: %s\n", time);
         }
     }

@@ -33,8 +33,8 @@ public class VariableTransformer extends Transformer {
         for (MethodNode method : classNode.methods) {
             ClassMethodNode cmn = new ClassMethodNode(classNode, method);
             if (target == null || target.equals(cmn)) {
-                if (excluded.contains(cmn.toString())) continue;
                 if (method.instructions.size() == 0) continue;
+                if (AsmUtils.codeSize(method) * 2 >= 50000) continue;
 
                 Analyzer<BasicValue> analyzer = new Analyzer<>(new BasicInterpreter());
 
@@ -77,11 +77,39 @@ public class VariableTransformer extends Transformer {
 
                         boolean load = var.getOpcode() >= ILOAD && var.getOpcode() <= ALOAD;
                         Frame<BasicValue> frame = frames[instruction.index + (load ? 1 : 0)];
-                        if (frame == null) continue;
+                        if (frame == null) {
+                            failedVars.add(var.var);
+                            continue;
+                        }
                         Type type = frame.getStack(frame.getStackSize() - 1).getType();
-                        if (type == null) continue;
-                        if (type.getSize() > 1) continue;
 
+                        switch (var.getOpcode()) {
+                            case ILOAD:
+                            case ISTORE:
+                                type = Type.INT_TYPE;
+                                break;
+                            case FLOAD:
+                            case FSTORE:
+                                type = Type.FLOAT_TYPE;
+                                break;
+                            case LLOAD:
+                            case LSTORE:
+                                type = Type.LONG_TYPE;
+                                break;
+                            case DLOAD:
+                            case DSTORE:
+                                type = Type.DOUBLE_TYPE;
+                                break;
+                        }
+
+                        if (type == null) {
+                            failedVars.add(var.var);
+                            continue;
+                        }
+                        if (type.getSize() > 1) {
+                            failedVars.add(var.var);
+                            continue;
+                        }
                         if (type.getInternalName().equals("null") || type.getInternalName().equals("java/lang/Object")) {
                             failedVars.add(var.var);
                             continue;

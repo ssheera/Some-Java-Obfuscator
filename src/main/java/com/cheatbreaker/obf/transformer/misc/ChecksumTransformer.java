@@ -242,6 +242,7 @@ public class ChecksumTransformer extends Transformer {
                         for (Transformer transformer : obf.getTransformers()) {
 //                            boolean old = transformer.enabled;
 //                            transformer.enabled = true;
+                            if (!transformer.canBeIterated) continue;
                             transformer.target = new ClassMethodNode(holder, checkMethod);
                             transformer.run(holder);
                             transformer.target = null;

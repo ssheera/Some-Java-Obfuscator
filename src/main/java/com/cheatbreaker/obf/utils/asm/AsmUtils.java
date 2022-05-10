@@ -199,12 +199,55 @@ public class AsmUtils implements Opcodes{
             case "D":
                 list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false));
                 break;
+            default:
+                list.add(new TypeInsnNode(CHECKCAST, desc));
+                break;
+        }
+    }
+
+    public static void boxPrimitive(String desc, List<AbstractInsnNode> list) {
+        switch (desc) {
+            case "I":
+                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false));
+                break;
+            case "Z":
+                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false));
+                break;
+            case "B":
+                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Byte", "valueOf", "(B)Ljava/lang/Byte;", false));
+                break;
+            case "C":
+                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Character", "valueOf", "(C)Ljava/lang/Character;", false));
+                break;
+            case "S":
+                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Short", "valueOf", "(S)Ljava/lang/Short;", false));
+                break;
+            case "J":
+                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false));
+                break;
+            case "F":
+                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Float", "valueOf", "(F)Ljava/lang/Float;", false));
+                break;
+            case "D":
+                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false));
+                break;
+            default:
+                list.add(new TypeInsnNode(CHECKCAST, desc));
+                break;
         }
     }
 
     private static final Printer printer = new Textifier();
     private static final TraceMethodVisitor methodPrinter = new TraceMethodVisitor(printer);
-
+    public static String print(AbstractInsnNode insnNode) {
+        if (insnNode == null) return "null";
+        insnNode.accept(methodPrinter);
+        StringWriter sw = new StringWriter();
+        printer.print(new PrintWriter(sw));
+        printer.getText().clear();
+        return sw.toString().trim();
+    }
+    
     public static FieldNode findField(Obf obf, String owner, String name, String desc) {
         ClassWrapper classNode = obf.assureLoaded(owner);
         if (classNode == null) return null;
@@ -220,14 +263,7 @@ public class AsmUtils implements Opcodes{
         return null;
     }
 
-    public static String print(AbstractInsnNode insnNode) {
-        if (insnNode == null) return "null";
-        insnNode.accept(methodPrinter);
-        StringWriter sw = new StringWriter();
-        printer.print(new PrintWriter(sw));
-        printer.getText().clear();
-        return sw.toString().trim();
-    }
+
 
     public static MethodNode findMethod(Obf obf, String owner, String name, String descriptor) {
         ClassWrapper classNode = obf.assureLoaded(owner);
@@ -337,10 +373,10 @@ public class AsmUtils implements Opcodes{
                 list.add(new InsnNode(ACONST_NULL));
                 break;
             case RETURN:
-                list.add(new InsnNode(RETURN));
                 break;
             default:
                 throw new IllegalArgumentException("Unknown return type: " + returnType);
         }
+        list.add(new InsnNode(returnType.getOpcode(IRETURN)));
     }
 }

@@ -1,14 +1,18 @@
 package com.cheatbreaker.obf.utils.samples;
 
+import java.io.File;
+
 public class NativeHandler {
+
+    static {
+        System.load(new File("native\\x64\\Release\\native.dll").getAbsolutePath());
+    }
 
     /**
      * Decrypts constant pool contents
      *
-     *  - Integers
+     *  - Ints
      *  - Longs
-     *  - Methods
-     *  - Fields
      *
      * @param klass The class whose constant pool is going to be decrypted
      */

@@ -36,6 +36,8 @@ public class StripTransformer extends Transformer {
                 field.signature = null;
             classNode.signature = null;
             classNode.innerClasses.clear();
+            classNode.sourceFile = null;
+            classNode.sourceDebug = null;
         }
     }
 }

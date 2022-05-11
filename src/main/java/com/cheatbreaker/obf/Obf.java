@@ -5,6 +5,7 @@ import com.cheatbreaker.obf.transformer.general.StripTransformer;
 import com.cheatbreaker.obf.transformer.misc.ChecksumTransformer;
 import com.cheatbreaker.obf.transformer.misc.InlinerTransformer;
 import com.cheatbreaker.obf.transformer.misc.VariableTransformer;
+import com.cheatbreaker.obf.transformer.natives.ConstantPoolTransformer;
 import com.cheatbreaker.obf.transformer.strings.ToStringTransformer;
 import com.cheatbreaker.obf.utils.asm.ClassWrapper;
 import com.cheatbreaker.obf.utils.asm.ContextClassWriter;
@@ -244,6 +245,7 @@ public class Obf implements Opcodes {
         transformers.add(new ToStringTransformer(this));
         transformers.add(new VariableTransformer(this));
         transformers.add(new InlinerTransformer(this));
+        transformers.add(new ConstantPoolTransformer(this));
 
         long start = System.currentTimeMillis();
 

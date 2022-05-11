@@ -100,4 +100,19 @@ public abstract class Transformer implements Opcodes {
         System.out.printf("[" + this.getClass().getSimpleName() + "] " + message + "\n", args);
     }
 
+    protected String xor(String s, String key) {
+        char[] c = s.toCharArray();
+        for (int i = 0; i < c.length; i++) {
+            c[i] = (char) (c[i] ^ key.charAt(i % key.length()));
+        }
+        return new String(c);
+    }
+
+    protected String xor(String s, int key) {
+        char[] c = s.toCharArray();
+        for (int i = 0; i < c.length; i++) {
+            c[i] = (char) (c[i] - key);
+        }
+        return new String(c);
+    }
 }

@@ -21,22 +21,14 @@ public class ToStringTransformer extends Transformer {
 
     @Override
     public void run(ClassWrapper classNode) {
-        int c = 0;
-
-        for (ClassWrapper cn : obf.getClasses()) {
-            if (!cn.name.contains("$")) continue;
-            if (cn.name.substring(0, cn.name.lastIndexOf('$')).equals(classNode.name)) {
-                c++;
-            }
-        }
 
         for (MethodNode method : classNode.methods) {
             for (AbstractInsnNode instruction : method.instructions) {
                 if (instruction instanceof LdcInsnNode && ((LdcInsnNode) instruction).cst instanceof String) {
-                    c++;
+
                     String string = (String) ((LdcInsnNode) instruction).cst;
                     ClassWrapper cn = new ClassWrapper(true);
-                    cn.visit(V1_8, ACC_FINAL | ACC_SUPER, classNode.name + "$" + c, null, "java/lang/Object", null);
+                    cn.visit(V1_8, ACC_FINAL | ACC_SUPER, classNode.name + "$" + random.nextInt(), null, "java/lang/Object", null);
 
                     MethodVisitor mn = cn.visitMethod(ACC_PUBLIC, "toString", "()Ljava/lang/String;", null, null);
                     mn.visitCode();

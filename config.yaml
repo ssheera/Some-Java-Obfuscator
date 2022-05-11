@@ -38,3 +38,9 @@ misc:
       - dev/sim0n/evaluator/Main
     reobf: true
     methodName: "check"
+natives:
+  constantpool:
+    enabled: true
+    excluded: []
+    included: []
+    iterations: 1

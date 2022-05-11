@@ -1,4 +1,4 @@
-# XenonGuard
+# Some Java Obfuscator
  A modified version of cheatbreaker-obf to test out some ideas I had
 ## Features
  * StripTransformer - `Strips debug information from classes, methods and fields`

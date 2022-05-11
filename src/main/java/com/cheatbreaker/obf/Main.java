@@ -35,7 +35,7 @@ public class Main {
 
     public static void main(String[] args) {
 
-        System.out.println("Starting XenonGuard...");
+        System.out.println("Starting...");
 
         OptionParser parser = new OptionParser();
         parser.accepts("config").withRequiredArg().required().ofType(File.class);

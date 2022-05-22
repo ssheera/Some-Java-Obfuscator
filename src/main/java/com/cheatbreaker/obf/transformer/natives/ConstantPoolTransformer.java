@@ -27,6 +27,7 @@ public class ConstantPoolTransformer extends Transformer {
     @SneakyThrows
     @Override
     protected void after() {
+
         if (!loadedNative) {
             File file = new File("target\\classes\\com\\cheatbreaker\\obf\\utils\\samples\\NativeHandler.class");
             byte[] b = IOUtils.toByteArray(new FileInputStream(file));
@@ -34,11 +35,12 @@ public class ConstantPoolTransformer extends Transformer {
             ClassWrapper cw = new ClassWrapper(false);
             cr.accept(cw, ClassReader.SKIP_DEBUG);
             cw.name = "vm/NativeHandler";
-            obf.addNewClass(cw);
+            obf.addClass(cw);
             loadedNative = true;
         }
 
         for (ClassWrapper classNode : obf.getClasses()) {
+            if (classNode.name.equals("vm/NativeHandler")) continue;
             transform(classNode);
         }
 
@@ -64,6 +66,77 @@ public class ConstantPoolTransformer extends Transformer {
                     method.instructions.set(instruction, new LdcInsnNode(instruction.getOpcode() - 11.f));
                 } else if (instruction.getOpcode() >= DCONST_0 && instruction.getOpcode() <= DCONST_1) {
                     method.instructions.set(instruction, new LdcInsnNode(instruction.getOpcode() - 14.d));
+                }
+            }
+        }
+
+        for (MethodNode method : classNode.methods) {
+            for (AbstractInsnNode instruction : method.instructions) {
+                if (AsmUtils.isPushInt(instruction)) {
+                    int value = AsmUtils.getPushedInt(instruction);
+                    if (value == 0) {
+                        InsnList list2 = new InsnList();
+                        int r = random.nextInt();
+                        int r2 = random.nextInt();
+                        list2.add(new LdcInsnNode(r));
+                        list2.add(new LdcInsnNode(r ^ r2));
+                        list2.add(new LdcInsnNode(r2));
+                        list2.add(new InsnNode(IXOR));
+                        list2.add(new InsnNode(ISUB));
+                    }
+                } else if (AsmUtils.isPushLong(instruction)) {
+                    long value = AsmUtils.getPushedLong(instruction);
+                    if (value == 0) {
+                        InsnList list2 = new InsnList();
+                        long r = random.nextLong();
+                        long r2 = random.nextLong();
+                        list2.add(new LdcInsnNode(r));
+                        list2.add(new LdcInsnNode(r ^ r2));
+                        list2.add(new LdcInsnNode(r2));
+                        list2.add(new InsnNode(LXOR));
+                        list2.add(new InsnNode(LCMP));
+                    }
+                }
+            }
+        }
+
+        for (MethodNode method : classNode.methods) {
+            for (AbstractInsnNode instruction : method.instructions) {
+                if (AsmUtils.isPushInt(instruction)) {
+                    int tkey = key ^ random.nextInt();
+                    InsnList list2 = new InsnList();
+                    list2.add(new LdcInsnNode(tkey));
+                    list2.add(new InsnNode(IXOR));
+                    method.instructions.insert(instruction, list2);
+                    method.instructions.set(instruction, new LdcInsnNode(AsmUtils.getPushedInt(instruction) ^ tkey));
+                } else if (AsmUtils.isPushLong(instruction)) {
+                    long tkey = key ^ random.nextLong();
+                    InsnList list2 = new InsnList();
+                    list2.add(new LdcInsnNode(tkey));
+                    list2.add(new InsnNode(LXOR));
+                    method.instructions.insert(instruction, list2);
+                    method.instructions.set(instruction, new LdcInsnNode(AsmUtils.getPushedLong(instruction) ^ tkey));
+                }
+            }
+        }
+
+
+        for (MethodNode method : classNode.methods) {
+            for (AbstractInsnNode instruction : method.instructions) {
+                if (AsmUtils.isPushInt(instruction)) {
+                    int tkey = key ^ random.nextInt();
+                    InsnList list2 = new InsnList();
+                    list2.add(new LdcInsnNode(tkey));
+                    list2.add(new InsnNode(IXOR));
+                    method.instructions.insert(instruction, list2);
+                    method.instructions.set(instruction, new LdcInsnNode(AsmUtils.getPushedInt(instruction) ^ tkey));
+                } else if (AsmUtils.isPushLong(instruction)) {
+                    long tkey = key ^ random.nextLong();
+                    InsnList list2 = new InsnList();
+                    list2.add(new LdcInsnNode(tkey));
+                    list2.add(new InsnNode(LXOR));
+                    method.instructions.insert(instruction, list2);
+                    method.instructions.set(instruction, new LdcInsnNode(AsmUtils.getPushedLong(instruction) ^ tkey));
                 }
             }
         }

@@ -32,11 +32,9 @@ import org.objectweb.asm.tree.*;
 import org.objectweb.asm.util.Printer;
 import org.objectweb.asm.util.Textifier;
 import org.objectweb.asm.util.TraceMethodVisitor;
-import sun.misc.Unsafe;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -378,5 +376,45 @@ public class AsmUtils implements Opcodes{
                 throw new IllegalArgumentException("Unknown return type: " + returnType);
         }
         list.add(new InsnNode(returnType.getOpcode(IRETURN)));
+    }
+
+    public static String parentName(String name) {
+        if (name.contains("/")) {
+            return name.substring(0, name.lastIndexOf("/") + 1);
+        } else {
+            return "";
+        }
+    }
+
+    public static MethodNode findMethodSuper(ClassWrapper owner, String name, String desc) {
+        ClassWrapper superWrapper = owner;
+        while (superWrapper != null) {
+            MethodNode m = AsmUtils.findMethod(superWrapper, name, desc);
+            if (m != null) {
+                return m;
+            }
+            if (superWrapper.superName == null || superWrapper.superName.isEmpty()) {
+                break;
+            }
+            superWrapper = Obf.getInstance().assureLoaded(superWrapper.superName);
+        }
+
+        return null;
+    }
+
+    public static FieldNode findFieldSuper(ClassWrapper ownerClass, String name, String desc) {
+        ClassWrapper superWrapper = ownerClass;
+        while (superWrapper != null) {
+            FieldNode m = AsmUtils.findField(superWrapper, name, desc);
+            if (m != null) {
+                return m;
+            }
+            if (superWrapper.superName == null || superWrapper.superName.isEmpty()) {
+                break;
+            }
+            superWrapper = Obf.getInstance().assureLoaded(superWrapper.superName);
+        }
+
+        return null;
     }
 }

@@ -4,6 +4,7 @@ import com.cheatbreaker.obf.transformer.Transformer;
 import com.cheatbreaker.obf.transformer.general.StripTransformer;
 import com.cheatbreaker.obf.transformer.misc.ChecksumTransformer;
 import com.cheatbreaker.obf.transformer.misc.InlinerTransformer;
+import com.cheatbreaker.obf.transformer.misc.PackerTransformer;
 import com.cheatbreaker.obf.transformer.misc.VariableTransformer;
 import com.cheatbreaker.obf.transformer.natives.ConstantPoolTransformer;
 import com.cheatbreaker.obf.transformer.strings.ToStringTransformer;
@@ -18,10 +19,7 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import sun.util.calendar.BaseCalendar;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.*;
@@ -31,6 +29,7 @@ import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
 
 public class Obf implements Opcodes {
 
@@ -45,7 +44,6 @@ public class Obf implements Opcodes {
     private final List<ClassWrapper> classes = new ArrayList<>();
     private final List<ClassWrapper> libs = new ArrayList<>(65525);
     private final List<Transformer> transformers = new ArrayList<>();
-    private final List<ClassWrapper> newClasses = new ArrayList<>();
     private final YamlConfiguration config;
     private final HashMap<String, byte[]> resources = new HashMap<>();
     private final HashMap<String, byte[]> generated = new HashMap<>();
@@ -54,9 +52,176 @@ public class Obf implements Opcodes {
         return transformers;
     }
 
+    public Obf(YamlConfiguration configuration) throws Exception {
+
+        this.config = configuration;
+
+        File inputFile = new File(config.getString("input"));
+        File outputFile = new File(config.getString("output"));
+        List<File> libs = config.getStringList("libs").stream().map(File::new).collect(Collectors.toList());
+
+        instance = this;
+        loadJavaRuntime();
+
+        LinkedList<Thread> libraryThreads = new LinkedList<>();
+
+        System.out.println("Loading libraries...");
+
+        for (String library : libraries) {
+            libraryThreads.add(new Thread(() -> {
+                try {
+                    loadJar(new File(library), true);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }));
+        }
+
+        for (File folder : libs) {
+            for (File lib : walkFolder(folder)) {
+                if (lib.getName().startsWith("rt")) {
+                    continue;
+                }
+                libraryThreads.add(new Thread(() -> {
+                    try {
+                        loadJar(lib, true);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }));
+            }
+        }
+
+        for (Thread libraryThread : libraryThreads) {
+            libraryThread.start();
+        }
+
+        for (Thread libraryThread : libraryThreads) {
+            libraryThread.join();
+        }
+
+        System.out.println("Reading jar...");
+
+        loadJar(inputFile, false);
+
+        random = ThreadLocalRandom.current();
+
+        System.out.println("Loading transformers...");
+
+        transformers.add(new StripTransformer(this));
+        transformers.add(new ChecksumTransformer(this));
+        transformers.add(new ToStringTransformer(this));
+        transformers.add(new VariableTransformer(this));
+        transformers.add(new InlinerTransformer(this));
+        transformers.add(new ConstantPoolTransformer(this));
+        transformers.add(new PackerTransformer(this));
+
+        long start = System.currentTimeMillis();
+
+        try (JarOutputStream out = new JarOutputStream(new FileOutputStream(outputFile))) {
+
+            System.out.println("Transforming classes...");
+
+            for (Transformer transformer : transformers) {
+                if (!transformer.enabled) continue;
+                new ArrayList<>(classes).forEach(transformer::run);
+            }
+
+            for (Transformer transformer : transformers) {
+                if (!transformer.enabled) continue;
+                try {
+                    transformer.getClass().getDeclaredMethod("after");
+                } catch (NoSuchMethodException e) {
+                    continue;
+                }
+                transformer.runAfter();
+            }
+
+            // Write manifest
+            {
+                ZipEntry e = new ZipEntry(JarFile.MANIFEST_NAME);
+                out.putNextEntry(e);
+                manifest.write(new BufferedOutputStream(out));
+                out.closeEntry();
+            }
+
+            System.out.println("Writing classes...");
+
+            for (ClassWrapper classNode : classes) {
+
+                byte[] b = generated.getOrDefault(classNode.name, null);
+
+                if (b != null && b.length == 0) continue;
+
+                if (b == null) {
+                    ContextClassWriter writer = new ContextClassWriter(ClassWriter.COMPUTE_FRAMES);
+                    try {
+                        classNode.accept(writer);
+                        b = writer.toByteArray();
+                    } catch (Exception ex) {
+                        System.out.println("Failed to compute frames for class: " + classNode.name + ", " + ex.getMessage());
+                        writer = new ContextClassWriter(ClassWriter.COMPUTE_MAXS);
+                        classNode.accept(writer);
+                        b = writer.toByteArray();
+                    }
+                }
+
+                if (b != null) {
+                    out.putNextEntry(new JarEntry(classNode.name + ".class"));
+                    out.write(b);
+                }
+            }
+
+            System.out.println("Writing resources...");
+            resources.forEach((name, data) -> {
+                try {
+                    if (name.equals(JarFile.MANIFEST_NAME))
+                        return;
+                    out.putNextEntry(new JarEntry(name));
+                    out.write(data);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            });
+
+            out.close();
+
+            long difference = outputFile.length() - inputFile.length();
+
+            boolean compressed = difference < 0;
+            Date epoch = new Date(0);
+            Date elapsed = Date.from(Instant.ofEpochMilli(System.currentTimeMillis() - start));
+
+            StringBuilder time = new StringBuilder();
+
+            int dh = elapsed.getHours() - epoch.getHours();
+            int dm = elapsed.getMinutes() - epoch.getMinutes();
+            int ds = elapsed.getSeconds() - epoch.getSeconds();
+
+            if (dh > 0)
+                time.append(dh).append("h ");
+            if (dm > 0)
+                time.append(dm).append("m ");
+            if (ds > 0)
+                time.append(ds).append("s ");
+            Method normalize = Date.class.getDeclaredMethod("normalize");
+            normalize.setAccessible(true);
+            BaseCalendar.Date date = (BaseCalendar.Date) normalize.invoke(elapsed);
+            time.append(date.getMillis()).append("ms");
+
+            System.out.printf("Size: %.2fKB -> %.2fKB (%s%.2f%%)\n",
+                    inputFile.length() / 1024D, outputFile.length() / 1024D, compressed ? "-" : "+", (100D * Math.abs((double) difference) / (double) inputFile.length()));
+            System.out.printf("Elapsed: %s\n", time);
+        }
+    }
+
+    public HashMap<String, byte[]> getResources() {
+        return resources;
+    }
+
     private final Vector<String> libraries = new Vector<>();
 
-    public void loadJavaRuntime()  {
+    public void loadJavaRuntime() {
         String path = System.getProperty("sun.boot.class.path");
         if (path != null) {
             String[] pathFiles = path.split(";");
@@ -82,7 +247,8 @@ public class Obf implements Opcodes {
                     ClassReader reader = new ClassReader(bytes);
                     ClassWrapper classNode = new ClassWrapper(!lib);
                     reader.accept(classNode, ClassReader.SKIP_FRAMES);
-                    if (lib) libs.add(classNode); else classes.add(classNode);
+                    if (lib) libs.add(classNode);
+                    else classes.add(classNode);
                 } else {
                     if (!lib) resources.put(entry.getName(), bytes);
                 }
@@ -184,171 +350,8 @@ public class Obf implements Opcodes {
         return config;
     }
 
-    public Obf(YamlConfiguration configuration) throws Exception {
-
-        this.config = configuration;
-
-        File inputFile = new File(config.getString("input"));
-        File outputFile = new File(config.getString("output"));
-        List<File> libs = config.getStringList("libs").stream().map(File::new).collect(Collectors.toList());
-
-        instance = this;
-        loadJavaRuntime();
-
-        LinkedList<Thread> libraryThreads = new LinkedList<>();
-
-        System.out.println("Loading libraries...");
-
-        for (String library : libraries) {
-            libraryThreads.add(new Thread(() -> {
-                try {
-                    loadJar(new File(library), true);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }));
-        }
-
-        for (File folder : libs) {
-            for (File lib : walkFolder(folder)) {
-                if (lib.getName().startsWith("rt")) {
-                    continue;
-                }
-                libraryThreads.add(new Thread(() -> {
-                    try {
-                        loadJar(lib, true);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }));
-            }
-        }
-
-        for (Thread libraryThread : libraryThreads) {
-            libraryThread.start();
-        }
-
-        for (Thread libraryThread : libraryThreads) {
-            libraryThread.join();
-        }
-
-        System.out.println("Reading jar...");
-
-        loadJar(inputFile, false);
-
-        random = ThreadLocalRandom.current();
-
-        System.out.println("Loading transformers...");
-
-        transformers.add(new StripTransformer(this));
-        transformers.add(new ChecksumTransformer(this));
-        transformers.add(new ToStringTransformer(this));
-        transformers.add(new VariableTransformer(this));
-        transformers.add(new InlinerTransformer(this));
-        transformers.add(new ConstantPoolTransformer(this));
-
-        long start = System.currentTimeMillis();
-
-        try (JarOutputStream out = new JarOutputStream(new FileOutputStream(outputFile))) {
-
-            System.out.println("Transforming classes...");
-
-            for (Transformer transformer : transformers) {
-                if (!transformer.enabled) continue;
-                classes.forEach((transformer::run));
-            }
-
-            for (Transformer transformer : transformers) {
-                if (!transformer.enabled) continue;
-                try {
-                    transformer.getClass().getDeclaredMethod("after");
-                } catch (NoSuchMethodException e) {
-                    continue;
-                }
-                transformer.runAfter();
-            }
-
-            System.out.println("Writing classes...");
-
-            Collections.shuffle(newClasses, random);
-            Collections.shuffle(classes, random);
-
-            for (ClassWrapper classNode : classes) {
-
-                byte[] b = generated.getOrDefault(classNode.name, null);
-
-                if (b == null) {
-                    ContextClassWriter writer = new ContextClassWriter(ClassWriter.COMPUTE_FRAMES);
-                    try {
-                        classNode.accept(writer);
-                        b = writer.toByteArray();
-                    } catch (Exception ex) {
-                        System.out.println("Failed to compute frames for class: " + classNode.name + ", " + ex.getMessage());
-                        writer = new ContextClassWriter(ClassWriter.COMPUTE_MAXS);
-                        classNode.accept(writer);
-                        b = writer.toByteArray();
-                    }
-                }
-
-                if (b != null) {
-                    out.putNextEntry(new JarEntry(classNode.name + ".class"));
-                    out.write(b);
-                }
-            }
-
-            System.out.println("Writing generated classes...");
-            for (ClassWrapper classNode : newClasses) {
-                ContextClassWriter writer = new ContextClassWriter(ClassWriter.COMPUTE_FRAMES);
-                try {
-                    classNode.accept(writer);
-                } catch (Exception ex) {
-                    System.out.println("Failed to compute frames for class: " + classNode.name + ", " + ex.getMessage());
-                    writer = new ContextClassWriter(ClassWriter.COMPUTE_MAXS);
-                    classNode.accept(writer);
-                }
-                out.putNextEntry(new JarEntry(classNode.name + ".class"));
-                out.write(writer.toByteArray());
-            }
-
-            System.out.println("Writing resources...");
-            resources.forEach((name, data) -> {
-                try {
-                    out.putNextEntry(new JarEntry(name));
-                    out.write(data);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            });
-
-            out.close();
-
-            long difference = outputFile.length() - inputFile.length();
-
-            boolean compressed = difference < 0;
-            Date epoch = new Date(0);
-            Date elapsed = Date.from(Instant.ofEpochMilli(System.currentTimeMillis() - start));
-
-            StringBuilder time = new StringBuilder();
-
-            int dh = elapsed.getHours() - epoch.getHours();
-            int dm = elapsed.getMinutes() - epoch.getMinutes();
-            int ds = elapsed.getSeconds() - epoch.getSeconds();
-
-            if (dh > 0)
-                time.append(dh).append("h ");
-            if (dm > 0)
-                time.append(dm).append("m ");
-            if (ds > 0)
-                time.append(ds).append("s ");
-            Method normalize = Date.class.getDeclaredMethod("normalize");
-            normalize.setAccessible(true);
-            BaseCalendar.Date date = (BaseCalendar.Date) normalize.invoke(elapsed);
-            time.append(date.getMillis()).append("ms");
-
-            System.out.printf("Size: %.2fKB -> %.2fKB (%s%.2f%%)\n",
-                     inputFile.length()/1024D, outputFile.length()/1024D, compressed ? "-" : "+", (100D * Math.abs((double) difference) / (double) inputFile.length()));
-            System.out.printf("Elapsed: %s\n", time);
-        }
+    public void addResource(String name, byte[] data) {
+        resources.put(name, data);
     }
 
 
@@ -364,12 +367,8 @@ public class Obf implements Opcodes {
         return libs;
     }
 
-    public List<ClassWrapper> getNewClasses() {
-        return newClasses;
-    }
-
-    public void addNewClass(ClassWrapper classNode) {
-        newClasses.add(classNode);
+    public void addClass(ClassWrapper classNode) {
+        classes.add(classNode);
     }
 
     public ClassWrapper assureLoaded(String owner) {
@@ -393,4 +392,7 @@ public class Obf implements Opcodes {
         generated.put(name, b);
     }
 
+    public boolean isTransformerEnabled(Class<? extends Transformer> transformer) {
+        return transformers.stream().anyMatch(t -> t.getClass().equals(transformer) && t.enabled);
+    }
 }

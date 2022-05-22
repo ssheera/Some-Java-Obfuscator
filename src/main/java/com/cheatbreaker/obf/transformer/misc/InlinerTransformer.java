@@ -21,9 +21,8 @@ public class InlinerTransformer extends Transformer {
     private final boolean removal;
     private final boolean changeAccess;
 
-    private LinkedList<ClassMethodNode> failed = new LinkedList<>();
-
-    private LinkedList<ClassMethodNode> inlinedMethods = new LinkedList<>();
+    private final LinkedList<ClassMethodNode> inlinedMethods = new LinkedList<>();
+    private final LinkedList<ClassMethodNode> failed = new LinkedList<>();
 
     @Override
     public String getSection() {
@@ -66,16 +65,14 @@ public class InlinerTransformer extends Transformer {
                         MethodInsnNode node = (MethodInsnNode) instruction;
                         ClassWrapper owner = obf.assureLoaded(node.owner);
                         if (owner == null) continue;
-                        MethodNode target = AsmUtils.findMethod(owner, node.name, node.desc);
+                        MethodNode target = AsmUtils.findMethodSuper(owner, node.name, node.desc);
 
                         if (target != null) {
 
-                            ClassMethodNode inlineNode = new ClassMethodNode(classNode, target);
+                            ClassMethodNode inline = new ClassMethodNode(owner, target);
 
-                            if (failed.contains(inlineNode)) continue;
-
-                            if (!canInline(classNode, target)) {
-                                failed.add(inlineNode);
+                            if (failed.contains(inline) || !canInline(classNode, owner, target, false)) {
+                                if (!failed.contains(inline)) failed.add(inline);
                                 continue;
                             }
 
@@ -87,19 +84,22 @@ public class InlinerTransformer extends Transformer {
                             int cachedLocals = method.maxLocals;
 
                             try {
+
                                 inline(target, method, node);
+
                                 Analyzer<?> analyzer = new Analyzer<>(new BasicInterpreter());
                                 analyzer.analyzeAndComputeMaxs(classNode.name, method);
 
                                 change = true;
 
                                 ClassMethodNode pair = new ClassMethodNode(owner, target);
-                                if (!inlinedMethods.contains(pair) && obf.getClasses().contains(owner) && owner.modify)
+                                if (!inlinedMethods.contains(pair) && owner.modify)
                                     inlinedMethods.add(pair);
 
                             } catch (Exception ex) {
                                 // Failed to inline
                                 error("Failed to inline method %s.%s%s [%s]", node.owner, node.name, node.desc, ex.getMessage());
+
                                 method.tryCatchBlocks = cachedTrys;
                                 method.instructions.clear();
                                 for (AbstractInsnNode cachedInsn : cachedInsns) {
@@ -108,6 +108,9 @@ public class InlinerTransformer extends Transformer {
                                 method.maxLocals = cachedLocals;
                             }
                         }
+                        //else {
+                        //    error("Could not find method %s.%s%s", node.owner, node.name, node.desc);
+                        //}
                     }
                 }
             }
@@ -118,7 +121,13 @@ public class InlinerTransformer extends Transformer {
 
     @Override
     protected void after() {
+
+        for (ClassWrapper classNode : obf.getClasses()) {
+            run(classNode);
+        }
+
         if (!removal) return;
+
         LinkedList<ClassMethodNode> toRemove = new LinkedList<>(inlinedMethods);
         for (ClassWrapper classNode : obf.getClasses()) {
             for (MethodNode method : classNode.methods) {
@@ -126,12 +135,13 @@ public class InlinerTransformer extends Transformer {
                     if (instruction instanceof MethodInsnNode) {
                         ClassWrapper owner = obf.assureLoaded(((MethodInsnNode) instruction).owner);
                         if (owner == null) continue;
-                        MethodNode target = AsmUtils.findMethod(owner, ((MethodInsnNode) instruction).name, ((MethodInsnNode) instruction).desc);
+                        MethodNode target = AsmUtils.findMethodSuper(owner, ((MethodInsnNode) instruction).name, ((MethodInsnNode) instruction).desc);
                         if (target == null) continue;
                         ClassMethodNode classMethodNode = new ClassMethodNode(owner, target);
                         for (ClassMethodNode inlinedMethod : inlinedMethods) {
                             if (inlinedMethod.equals(classMethodNode)) {
                                 toRemove.remove(inlinedMethod);
+                                log("Removed inlined method %s.%s%s", classNode.name, method.name, method.desc);
                                 break;
                             }
                         }
@@ -144,51 +154,151 @@ public class InlinerTransformer extends Transformer {
         }
     }
 
-
-//    @Override
-//    protected void after() {
-//        for (ClassWrapper classNode : obf.getClasses()) {
-//            run(classNode);
-//        }
-//    }
-
-    public boolean canInline(ClassWrapper classNode, MethodNode method) {
+    public boolean canInline(ClassWrapper ctx, ClassWrapper classNode, MethodNode method, boolean debug) {
         if (method.instructions.size() <= 0) return false;
         for (AbstractInsnNode instruction : method.instructions) {
             if (instruction instanceof FieldInsnNode) {
                 ClassWrapper ownerClass = obf.assureLoaded(((FieldInsnNode) instruction).owner);
-                if (ownerClass == null) return false;
-                if (!Modifier.isPublic(ownerClass.access)) return false;
-                FieldNode field = AsmUtils.findField(ownerClass, ((FieldInsnNode) instruction).name, ((FieldInsnNode) instruction).desc);
-                if (field == null) return false;
+                if (ownerClass == null) {
+                    if (debug) {
+                        error("[F] Could not find class %s", ((FieldInsnNode) instruction).owner);
+                    }
+                    return false;
+                }
+                if (!canAccess(ctx, ownerClass)) {
+                    if (debug) {
+                        error("Class %s is not accessible from %s", ownerClass.name, ctx.name);
+                    }
+                    return false;
+                }
+                FieldNode field = AsmUtils.findFieldSuper(ownerClass, ((FieldInsnNode) instruction).name, ((FieldInsnNode) instruction).desc);
+                if (field == null) {
+                    if (debug) {
+                        error("Could not find field %s.%s%s", ownerClass.name, ((FieldInsnNode) instruction).name, ((FieldInsnNode) instruction).desc);
+                    }
+                    return false;
+                }
                 NodeAccess access = new NodeAccess(field.access);
-                if (!checkAccess(access, classNode, ownerClass)) return false;
+                if (!checkAccess(access, classNode, ownerClass)) {
+                    if (debug) {
+                        error("Field %s.%s%s is not accessible", ownerClass.name, ((FieldInsnNode) instruction).name, ((FieldInsnNode) instruction).desc);
+                    }
+                    return false;
+                }
+                if (!checkAccess(access, ctx, ownerClass)) {
+                    if (debug) {
+                        error("Field %s.%s%s is not accessible", ownerClass.name, ((FieldInsnNode) instruction).name, ((FieldInsnNode) instruction).desc);
+                    }
+                    return false;
+                }
                 field.access = access.access;
             } else if (instruction instanceof TypeInsnNode) {
                 String type = ((TypeInsnNode) instruction).desc;
+                if (type.startsWith("[")) {
+                    if (type.substring(type.lastIndexOf('[') + 1).length() == 1) {
+                        continue;
+                    }
+                } else {
+                    if (type.length() == 1) {
+                        continue;
+                    }
+                }
                 ClassWrapper ownerClass = obf.assureLoaded(type);
-                if (ownerClass == null) return false;
-                if (!Modifier.isPublic(ownerClass.access)) return false;
+                if (ownerClass == null) {
+                    if (debug) {
+                        error("[T] Could not find class %s", type);
+                    }
+                    return false;
+                }
+                if (!canAccess(ctx, ownerClass)) {
+                    if (debug) {
+                        error("Class %s is not accessible from %s", ownerClass.name, ctx.name);
+                    }
+                    return false;
+                }
             } else if (instruction instanceof MethodInsnNode) {
                 MethodInsnNode node = (MethodInsnNode) instruction;
                 String owner = node.owner;
                 String name = node.name;
                 String desc = node.desc;
-                if (node.getOpcode() == INVOKESPECIAL && !name.equals("<init>")) return false;
+
+                if (node.getOpcode() == INVOKESPECIAL &&
+                        !name.equals("<init>") && !owner.equals(ctx.name)) {
+                    if (debug) {
+                        error("Cannot call super %s.%s%s from %s", owner, name, desc, ctx.name);
+                    }
+                    return false;
+                }
+
                 ClassWrapper ownerClass = obf.assureLoaded(owner);
-                if (ownerClass == null) return false;
-                if (!Modifier.isPublic(ownerClass.access)) return false;
-                MethodNode methodNode = AsmUtils.findMethod(ownerClass, name, desc);
-                if (methodNode == null) return false;
+                if (ownerClass == null) {
+                    if (debug) {
+                        error("[M] Could not find class %s [%s.%s%s]", owner, owner, name, desc);
+                    }
+                    return false;
+                }
+
+                if (!canAccess(ctx, ownerClass)) {
+                    if (debug) {
+                        error("Class %s is not accessible from %s", ownerClass.name, ctx.name);
+                    }
+                    return false;
+                }
+
+                MethodNode methodNode = AsmUtils.findMethodSuper(ownerClass, name, desc);
+                if (methodNode == null) {
+                    if (debug) {
+                        error("Could not find method %s.%s%s", owner, name, desc);
+                    }
+                    return false;
+                }
                 NodeAccess access = new NodeAccess(methodNode.access);
-                if (!checkAccess(access, classNode, ownerClass)) return false;
+                if (!checkAccess(access, classNode, ownerClass)) {
+                    if (debug) {
+                        error("Method %s.%s%s is not accessible", ownerClass.name, name, desc);
+                    }
+                    return false;
+                }
+                if (!checkAccess(access, ctx, ownerClass)) {
+                    if (debug) {
+                        error("Method %s.%s%s is not accessible", ownerClass.name, name, desc);
+                    }
+                    return false;
+                }
                 methodNode.access = access.access;
             } else if (instruction instanceof InvokeDynamicInsnNode) {
                 InvokeDynamicInsnNode node = (InvokeDynamicInsnNode) instruction;
-                if (node.bsm.getOwner().contains("LambdaMetafactory")) return false;
+                if (node.bsm.getOwner().contains("LambdaMetafactory")) {
+                    if (debug) {
+                        error("Cannot inline LambdaMetafactory");
+                    }
+                    return false;
+                }
             }
         }
         return true;
+    }
+
+    private boolean canAccess(ClassWrapper ctx, ClassWrapper ownerClass) {
+
+        if (ctx.name.equals(ownerClass.name)) {
+            return true;
+        }
+
+        if (Modifier.isPrivate(ownerClass.access)) {
+            return false;
+        }
+
+        String pkg1 = ctx.name.contains("/") ? ctx.name.substring(0, ctx.name.lastIndexOf('/')) : "";
+        String pkg2 = ownerClass.name.contains("/") ? ownerClass.name.substring(0, ownerClass.name.lastIndexOf('/')) : "";
+
+        if (!Modifier.isPublic(ownerClass.access)) {
+            if (pkg1.equals(pkg2)) {
+                return true;
+            }
+        }
+
+        return Modifier.isPublic(ownerClass.access);
     }
 
     private int fixAccess(int access) {
@@ -259,22 +369,25 @@ public class InlinerTransformer extends Transformer {
 
         InsnList list = new InsnList();
 
-//        int retVar = -1;
-//        Type retType = Type.getReturnType(toInlineMethod.desc);
+        int retVar = -1;
+        Type retType = Type.getReturnType(toInlineMethod.desc);
 
-        int currentLocals = toInlineMethod.maxLocals;
+//        int currentLocals = toInlineMethod.maxLocals;
 
         for (AbstractInsnNode insn : toInline) {
             if (insn instanceof InsnNode) {
                 if (insn.getOpcode() >= IRETURN && insn.getOpcode() <= RETURN) {
                     InsnList list2 = new InsnList();
 
-//                    if (insn.getOpcode() != RETURN) {
-//                        if (retVar == -1) {
-//                            retVar = toInlineMethod.maxLocals;
-//                        }
-//                        list2.add(new VarInsnNode(retType.getOpcode(ISTORE), retVar));
-//                    }
+                    if (insn.getOpcode() != RETURN) {
+                        if (retVar == -1) {
+                            retVar = toInlineMethod.maxLocals;
+                        }
+                        list2.add(new VarInsnNode(retType.getOpcode(ISTORE), retVar));
+                    }
+
+                    LabelNode label3 = new LabelNode();
+                    list2.add(label3);
 
                     list2.add(new JumpInsnNode(GOTO, end));
 
@@ -312,9 +425,9 @@ public class InlinerTransformer extends Transformer {
         for (AbstractInsnNode insn : toInline) {
             if (insn instanceof VarInsnNode) {
                 VarInsnNode varInsn = (VarInsnNode) insn;
-//                if (varInsn.var == retVar) {
-//                    retVar += locals;
-//                }
+                if (varInsn.var == retVar) {
+                    retVar += locals;
+                }
                 varInsn.var += locals;
             } else if (insn instanceof IincInsnNode) {
                 IincInsnNode iincInsnNode = (IincInsnNode) insn;
@@ -325,9 +438,9 @@ public class InlinerTransformer extends Transformer {
         list.add(toInline);
 
         list.add(end);
-//        if (retVar != -1) {
-//            list.add(new VarInsnNode(retType.getOpcode(ILOAD), retVar));
-//        }
+        if (retVar != -1) {
+            list.add(new VarInsnNode(retType.getOpcode(ILOAD), retVar));
+        }
 
         toInlineInto.insert(target, list);
         toInlineInto.remove(target);

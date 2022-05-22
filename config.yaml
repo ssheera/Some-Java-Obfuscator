@@ -22,22 +22,33 @@ misc:
     iterations: 1
   inliner:
     enabled: true
-    excluded: []
-    included: []
+    excluded: [ ]
+    included: [ ]
     iterations: 1
-    maxPasses: 3
-    remove-unused-methods: true
+    maxPasses: 10
+    remove-unused-methods: false
   checksum:
     enabled: true
-    excluded: []
-    included: []
+    excluded: [ ]
+    included: [ ]
     iterations: 1
     randomHolders: true
-    holders: []
+    holders: [ ]
     targets:
       - dev/sim0n/evaluator/Main
     reobf: true
-    methodName: "check"
+    methodName: "run"
+    reduced: false
+  packer:
+    enabled: false
+    excluded: [ ]
+    included: [ ]
+    iterations: 1
+    resource-name: '/'
+    class-name: ~/
+    class-super-name: random
+    reobf: true
+    forge: false
 natives:
   constantpool:
     enabled: true

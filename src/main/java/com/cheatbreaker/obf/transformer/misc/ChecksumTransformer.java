@@ -44,10 +44,10 @@ public class ChecksumTransformer extends Transformer {
 
     }
 
-    private List<String> targets;
+    private final List<String> targets;
     private List<String> holders;
-    private boolean reobfTarget;
-    private boolean randomHolders;
+    private final boolean reobfTarget;
+    private final boolean randomHolders;
 
     @Override
     public String getSection() {
@@ -104,103 +104,126 @@ public class ChecksumTransformer extends Transformer {
                     checkMethod.visitCode();
 
                     Label label2 = new Label();
+                    Label label3 = new Label();
 
-                    int r1 = random.nextInt();
-                    int r2 = random.nextInt();
+                    if (config.getBoolean("reduced", false) || obf.isTransformerEnabled(PackerTransformer.class)) {
 
-                    int real = r1;
+                        log("Reduced checksum check due to packer");
 
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    ByteArrayInputStream bais = new ByteArrayInputStream(b);
+                        checkMethod.visitLdcInsn(Type.getType("L" + holder.name + ";"));
+                        String s = "/" + classNode.name + ".class";
+                        checkMethod.visitLdcInsn(s);
 
-                    byte[] byArray = new byte[4096];
-                    while (true) {
-                        int n = bais.read(byArray, 0, byArray.length);
-                        real ^= r2 ^ baos.size();
-                        if (n == -1) break;
-                        baos.write(byArray, 0, n);
+                        checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Class", "getResourceAsStream", "(Ljava/lang/String;)Ljava/io/InputStream;", false);
+                        checkMethod.visitJumpInsn(IFNONNULL, label3);
+                        checkMethod.visitJumpInsn(GOTO, label2);
+
+                    } else {
+
+                        int r1 = random.nextInt();
+                        int r2 = random.nextInt();
+
+                        int real = r1;
+
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        ByteArrayInputStream bais = new ByteArrayInputStream(b);
+
+                        byte[] byArray = new byte[4096];
+                        while (true) {
+                            int n = bais.read(byArray, 0, byArray.length);
+                            real ^= r2 ^ baos.size();
+                            if (n == -1) break;
+                            baos.write(byArray, 0, n);
+                        }
+
+                        int bStart = writer.offsetCPStart;
+                        int bEnd = writer.offsetMethodEnd;
+
+                        byte[] b2 = new byte[bEnd - bStart];
+                        System.arraycopy(b, bStart, b2, 0, b2.length);
+
+                        int hash = Arrays.hashCode(b2) ^ real;
+
+                        log("Hash: %d Start: %d End: %d", hash, bStart, bEnd);
+
+                        checkMethod.visitLdcInsn(r1);
+                        checkMethod.visitVarInsn(ISTORE, 5);
+
+                        checkMethod.visitLdcInsn(Type.getType("L" + holder.name + ";"));
+                        String s = "/" + classNode.name + ".class";
+                        checkMethod.visitLdcInsn(s);
+
+                        checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Class", "getResourceAsStream", "(Ljava/lang/String;)Ljava/io/InputStream;", false);
+                        checkMethod.visitVarInsn(ASTORE, 1);
+
+                        checkMethod.visitVarInsn(ALOAD, 1);
+                        checkMethod.visitJumpInsn(IFNULL, label3);
+
+                        checkMethod.visitTypeInsn(NEW, "java/io/ByteArrayOutputStream");
+                        checkMethod.visitInsn(DUP);
+                        checkMethod.visitMethodInsn(INVOKESPECIAL, "java/io/ByteArrayOutputStream", "<init>", "()V", false);
+                        checkMethod.visitVarInsn(ASTORE, 2);
+                        checkMethod.visitIntInsn(SIPUSH, 4096);
+                        checkMethod.visitIntInsn(NEWARRAY, T_BYTE);
+                        checkMethod.visitVarInsn(ASTORE, 3);
+                        Label label0 = new Label();
+                        checkMethod.visitLabel(label0);
+                        checkMethod.visitInsn(ICONST_M1);
+                        checkMethod.visitVarInsn(ALOAD, 1);
+                        checkMethod.visitVarInsn(ALOAD, 3);
+                        checkMethod.visitInsn(ICONST_0);
+                        checkMethod.visitVarInsn(ALOAD, 3);
+                        checkMethod.visitInsn(ARRAYLENGTH);
+                        checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/InputStream", "read", "([BII)I", false);
+
+                        checkMethod.visitVarInsn(ILOAD, 5);
+                        checkMethod.visitLdcInsn(r2);
+                        checkMethod.visitVarInsn(ALOAD, 2);
+                        checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/ByteArrayOutputStream", "size", "()I", false);
+                        checkMethod.visitInsn(IXOR);
+                        checkMethod.visitInsn(IXOR);
+
+                        checkMethod.visitVarInsn(ISTORE, 5);
+
+                        checkMethod.visitInsn(DUP);
+                        checkMethod.visitVarInsn(ISTORE, 4);
+                        Label label1 = new Label();
+                        checkMethod.visitJumpInsn(IF_ICMPEQ, label1);
+                        checkMethod.visitVarInsn(ALOAD, 2);
+                        checkMethod.visitVarInsn(ALOAD, 3);
+                        checkMethod.visitInsn(ICONST_0);
+                        checkMethod.visitVarInsn(ILOAD, 4);
+                        checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/ByteArrayOutputStream", "write", "([BII)V", false);
+                        checkMethod.visitJumpInsn(GOTO, label0);
+                        checkMethod.visitLabel(label1);
+
+                        checkMethod.visitVarInsn(ALOAD, 2);
+                        checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/ByteArrayOutputStream", "toByteArray", "()[B", false);
+
+                        checkMethod.visitLdcInsn(bEnd - bStart);
+                        checkMethod.visitIntInsn(NEWARRAY, T_BYTE);
+                        checkMethod.visitVarInsn(ASTORE, 6);
+
+                        checkMethod.visitLdcInsn(bStart);
+                        checkMethod.visitVarInsn(ALOAD, 6);
+                        checkMethod.visitInsn(ICONST_0);
+                        checkMethod.visitVarInsn(ALOAD, 6);
+                        checkMethod.visitInsn(ARRAYLENGTH);
+                        checkMethod.visitMethodInsn(INVOKESTATIC, "java/lang/System", "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V", false);
+
+                        checkMethod.visitVarInsn(ALOAD, 6);
+
+                        checkMethod.visitMethodInsn(INVOKESTATIC, "java/util/Arrays", "hashCode", "([B)I", false);
+
+                        checkMethod.visitVarInsn(ILOAD, 5);
+                        checkMethod.visitLdcInsn(hash);
+                        checkMethod.visitInsn(IXOR);
+
+                        checkMethod.visitJumpInsn(IF_ICMPEQ, label2);
+
                     }
 
-                    int bStart = writer.offsetCPStart;
-                    int bEnd = writer.offsetMethodEnd;
-
-                    byte[] b2 = new byte[bEnd - bStart];
-                    System.arraycopy(b, bStart, b2, 0, b2.length);
-
-                    int hash = Arrays.hashCode(b2) ^ real;
-
-                    log("Hash: %d Start: %d End: %d", hash, bStart, bEnd);
-
-                    checkMethod.visitLdcInsn(r1);
-                    checkMethod.visitVarInsn(ISTORE, 5);
-
-                    checkMethod.visitLdcInsn(Type.getType("L" + holder.name +  ";"));
-                    String s = "/" + classNode.name + ".class";
-                    checkMethod.visitLdcInsn(s);
-
-                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Class", "getResourceAsStream", "(Ljava/lang/String;)Ljava/io/InputStream;", false);
-                    checkMethod.visitVarInsn(ASTORE, 1);
-                    checkMethod.visitTypeInsn(NEW, "java/io/ByteArrayOutputStream");
-                    checkMethod.visitInsn(DUP);
-                    checkMethod.visitMethodInsn(INVOKESPECIAL, "java/io/ByteArrayOutputStream", "<init>", "()V", false);
-                    checkMethod.visitVarInsn(ASTORE, 2);
-                    checkMethod.visitIntInsn(SIPUSH, 4096);
-                    checkMethod.visitIntInsn(NEWARRAY, T_BYTE);
-                    checkMethod.visitVarInsn(ASTORE, 3);
-                    Label label0 = new Label();
-                    checkMethod.visitLabel(label0);
-                    checkMethod.visitInsn(ICONST_M1);
-                    checkMethod.visitVarInsn(ALOAD, 1);
-                    checkMethod.visitVarInsn(ALOAD, 3);
-                    checkMethod.visitInsn(ICONST_0);
-                    checkMethod.visitVarInsn(ALOAD, 3);
-                    checkMethod.visitInsn(ARRAYLENGTH);
-                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/InputStream", "read", "([BII)I", false);
-
-                    checkMethod.visitVarInsn(ILOAD, 5);
-                    checkMethod.visitLdcInsn(r2);
-                    checkMethod.visitVarInsn(ALOAD, 2);
-                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/ByteArrayOutputStream", "size", "()I", false);
-                    checkMethod.visitInsn(IXOR);
-                    checkMethod.visitInsn(IXOR);
-
-                    checkMethod.visitVarInsn(ISTORE, 5);
-
-                    checkMethod.visitInsn(DUP);
-                    checkMethod.visitVarInsn(ISTORE, 4);
-                    Label label1 = new Label();
-                    checkMethod.visitJumpInsn(IF_ICMPEQ, label1);
-                    checkMethod.visitVarInsn(ALOAD, 2);
-                    checkMethod.visitVarInsn(ALOAD, 3);
-                    checkMethod.visitInsn(ICONST_0);
-                    checkMethod.visitVarInsn(ILOAD, 4);
-                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/ByteArrayOutputStream", "write", "([BII)V", false);
-                    checkMethod.visitJumpInsn(GOTO, label0);
-                    checkMethod.visitLabel(label1);
-
-                    checkMethod.visitVarInsn(ALOAD, 2);
-                    checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/io/ByteArrayOutputStream", "toByteArray", "()[B", false);
-
-                    checkMethod.visitLdcInsn(bEnd - bStart);
-                    checkMethod.visitIntInsn(NEWARRAY, T_BYTE);
-                    checkMethod.visitVarInsn(ASTORE, 6);
-
-                    checkMethod.visitLdcInsn(bStart);
-                    checkMethod.visitVarInsn(ALOAD, 6);
-                    checkMethod.visitInsn(ICONST_0);
-                    checkMethod.visitVarInsn(ALOAD, 6);
-                    checkMethod.visitInsn(ARRAYLENGTH);
-                    checkMethod.visitMethodInsn(INVOKESTATIC, "java/lang/System", "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V", false);
-
-                    checkMethod.visitVarInsn(ALOAD, 6);
-
-                    checkMethod.visitMethodInsn(INVOKESTATIC, "java/util/Arrays", "hashCode", "([B)I", false);
-
-                    checkMethod.visitVarInsn(ILOAD, 5);
-                    checkMethod.visitLdcInsn(hash);
-                    checkMethod.visitInsn(IXOR);
-
-                    checkMethod.visitJumpInsn(IF_ICMPEQ, label2);
+                    checkMethod.visitLabel(label3);
 
                     checkMethod.visitMethodInsn(INVOKESTATIC, "sun/misc/Launcher", "getLauncher", "()Lsun/misc/Launcher;", false);
                     checkMethod.visitMethodInsn(INVOKEVIRTUAL, "sun/misc/Launcher", "getClassLoader", "()Ljava/lang/ClassLoader;", false);
@@ -226,6 +249,7 @@ public class ChecksumTransformer extends Transformer {
                     checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/lang/reflect/Field", "set", "(Ljava/lang/Object;Ljava/lang/Object;)V", false);
 
                     checkMethod.visitLabel(label2);
+
                     checkMethod.visitInsn(RETURN);
                     checkMethod.visitEnd();
 

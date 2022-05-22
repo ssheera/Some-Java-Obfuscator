@@ -2,7 +2,9 @@ package com.cheatbreaker.obf.transformer.strings;
 
 import com.cheatbreaker.obf.Obf;
 import com.cheatbreaker.obf.transformer.Transformer;
+import com.cheatbreaker.obf.utils.asm.AsmUtils;
 import com.cheatbreaker.obf.utils.asm.ClassWrapper;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.tree.*;
@@ -20,7 +22,7 @@ public class ToStringTransformer extends Transformer {
     }
 
     @Override
-    public void run(ClassWrapper classNode) {
+    public void visit(ClassWrapper classNode) {
 
         for (MethodNode method : classNode.methods) {
             for (AbstractInsnNode instruction : method.instructions) {
@@ -28,7 +30,7 @@ public class ToStringTransformer extends Transformer {
 
                     String string = (String) ((LdcInsnNode) instruction).cst;
                     ClassWrapper cn = new ClassWrapper(true);
-                    cn.visit(V1_8, ACC_FINAL | ACC_SUPER, classNode.name + "$" + random.nextInt(), null, "java/lang/Object", null);
+                    cn.visit(V1_8, ACC_FINAL | ACC_SUPER, AsmUtils.parentName(classNode.name) + RandomStringUtils.randomAlphabetic(5), null, "java/lang/Object", null);
 
                     MethodVisitor mn = cn.visitMethod(ACC_PUBLIC, "toString", "()Ljava/lang/String;", null, null);
                     mn.visitCode();
@@ -50,7 +52,7 @@ public class ToStringTransformer extends Transformer {
                         mn.visitVarInsn(ALOAD, 1);
                         mn.visitInsn(DUP);
                         mn.visitLdcInsn(i);
-                        mn.visitLdcInsn(keys[i]);
+                        mn.visitLdcInsn((int) keys[i]);
                         mn.visitVarInsn(ALOAD, 1);
                         mn.visitMethodInsn(INVOKESTATIC, "java/util/Arrays", "hashCode", "([C)I", false);
                         mn.visitInsn(I2C);
@@ -75,7 +77,7 @@ public class ToStringTransformer extends Transformer {
                     mn.visitInsn(RETURN);
                     cn.visitOuterClass(classNode.name, method.name, method.desc);
                     cn.visitEnd();
-                    obf.addNewClass(cn);
+                    obf.addClass(cn);
 
                     classNode.innerClasses.add(new InnerClassNode(cn.name, null, null, ACC_STATIC));
 

@@ -25,11 +25,18 @@
 package com.cheatbreaker.obf.transformer;
 
 import com.cheatbreaker.obf.Obf;
+import com.cheatbreaker.obf.transformer.natives.CodeHiderTransformer;
+import com.cheatbreaker.obf.transformer.natives.ConstantPoolTransformer;
 import com.cheatbreaker.obf.utils.asm.ClassWrapper;
 import com.cheatbreaker.obf.utils.configuration.ConfigurationSection;
 import com.cheatbreaker.obf.utils.pair.ClassMethodNode;
+import lombok.SneakyThrows;
+import org.apache.commons.io.IOUtils;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.util.Vector;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -59,6 +66,8 @@ public abstract class Transformer implements Opcodes {
         this.excluded.addAll(config.getStringList("excluded"));
         this.included.addAll(config.getStringList("included"));
         this.iterations = config.getInt("iterations", 1);
+
+        loadedNative = obf.getClasses().stream().anyMatch(c -> c.name.equals("vm/NativeHandler"));
     }
 
 
@@ -77,8 +86,24 @@ public abstract class Transformer implements Opcodes {
 
     protected void visit(ClassWrapper classNode) {}
 
+    @SneakyThrows
     public final void runAfter() {
         if (!enabled) return;
+
+        if (obf.isTransformerEnabled(ConstantPoolTransformer.class) || obf.isTransformerEnabled(CodeHiderTransformer.class)) {
+            if (!loadedNative) {
+                File file = new File("target\\classes\\vm\\NativeHandler.class");
+                byte[] b = IOUtils.toByteArray(new FileInputStream(file));
+                ClassReader cr = new ClassReader(b);
+                ClassWrapper cw = new ClassWrapper(false);
+                cr.accept(cw, ClassReader.SKIP_DEBUG);
+                cw.name = "vm/NativeHandler";
+                cw.methods.removeIf(m -> m.name.startsWith("raw_"));
+                obf.addClass(cw);
+                loadedNative = true;
+            }
+        }
+
         after();
     }
 

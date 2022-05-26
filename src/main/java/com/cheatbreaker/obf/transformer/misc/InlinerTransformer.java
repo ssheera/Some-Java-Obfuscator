@@ -46,6 +46,7 @@ public class InlinerTransformer extends Transformer {
         for (MethodNode method : classNode.methods) {
             boolean change = true;
             while (change) {
+
                 change = visitMethod(classNode, method);
             }
         }
@@ -69,6 +70,8 @@ public class InlinerTransformer extends Transformer {
 
                         if (target != null) {
 
+                            if (Modifier.isAbstract(target.access) || Modifier.isNative(target.access)) continue;
+
                             ClassMethodNode inline = new ClassMethodNode(owner, target);
 
                             if (failed.contains(inline) || !canInline(classNode, owner, target, false)) {
@@ -76,25 +79,30 @@ public class InlinerTransformer extends Transformer {
                                 continue;
                             }
 
-                            if (AsmUtils.codeSize(target) + AsmUtils.codeSize(method) >= AsmUtils.MAX_INSTRUCTIONS)
-                                continue;
-
                             List<TryCatchBlockNode> cachedTrys = new ArrayList<>(method.tryCatchBlocks);
                             AbstractInsnNode[] cachedInsns = method.instructions.toArray();
                             int cachedLocals = method.maxLocals;
+
+                            if (AsmUtils.codeSize(target) + AsmUtils.codeSize(method) >= AsmUtils.MAX_INSTRUCTIONS)
+                                continue;
 
                             try {
 
                                 inline(target, method, node);
 
-                                Analyzer<?> analyzer = new Analyzer<>(new BasicInterpreter());
-                                analyzer.analyzeAndComputeMaxs(classNode.name, method);
+                                ClassMethodNode pair = new ClassMethodNode(owner, target);
+
+                                if (!inlinedMethods.contains(pair)) {
+                                    Analyzer<?> analyzer = new Analyzer<>(new BasicInterpreter());
+                                    analyzer.analyzeAndComputeMaxs(classNode.name, method);
+                                }
 
                                 change = true;
 
-                                ClassMethodNode pair = new ClassMethodNode(owner, target);
                                 if (!inlinedMethods.contains(pair) && owner.modify)
                                     inlinedMethods.add(pair);
+
+                                log("Inlined %s.%s%s", owner.name, target.name, target.desc);
 
                             } catch (Exception ex) {
                                 // Failed to inline
@@ -155,6 +163,9 @@ public class InlinerTransformer extends Transformer {
     }
 
     public boolean canInline(ClassWrapper ctx, ClassWrapper classNode, MethodNode method, boolean debug) {
+
+        if (excluded.contains(classNode.name + "." + method.name + method.desc)) return false;
+
         if (method.instructions.size() <= 0) return false;
         for (AbstractInsnNode instruction : method.instructions) {
             if (instruction instanceof FieldInsnNode) {
@@ -339,6 +350,7 @@ public class InlinerTransformer extends Transformer {
     public void inline(MethodNode toInlineMethod, MethodNode targetMethod, AbstractInsnNode target) {
 
         InsnList toInline = toInlineMethod.instructions;
+
         InsnList toInlineInto = targetMethod.instructions;
 
         {

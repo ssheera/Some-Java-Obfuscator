@@ -6,11 +6,13 @@ import com.cheatbreaker.obf.transformer.misc.ChecksumTransformer;
 import com.cheatbreaker.obf.transformer.misc.InlinerTransformer;
 import com.cheatbreaker.obf.transformer.misc.PackerTransformer;
 import com.cheatbreaker.obf.transformer.misc.VariableTransformer;
+import com.cheatbreaker.obf.transformer.natives.CodeHiderTransformer;
 import com.cheatbreaker.obf.transformer.natives.ConstantPoolTransformer;
 import com.cheatbreaker.obf.transformer.strings.ToStringTransformer;
 import com.cheatbreaker.obf.utils.asm.ClassWrapper;
 import com.cheatbreaker.obf.utils.asm.ContextClassWriter;
 import com.cheatbreaker.obf.utils.configuration.file.YamlConfiguration;
+import com.cheatbreaker.obf.utils.loader.LoaderUtil;
 import com.cheatbreaker.obf.utils.tree.ClassTree;
 import lombok.Getter;
 import org.apache.commons.io.IOUtils;
@@ -48,6 +50,9 @@ public class Obf implements Opcodes {
     private final HashMap<String, byte[]> resources = new HashMap<>();
     private final HashMap<String, byte[]> generated = new HashMap<>();
 
+    @Getter
+    private final LoaderUtil loader;
+
     public List<Transformer> getTransformers() {
         return transformers;
     }
@@ -55,6 +60,7 @@ public class Obf implements Opcodes {
     public Obf(YamlConfiguration configuration) throws Exception {
 
         this.config = configuration;
+        this.loader = new LoaderUtil(Obf.class.getClassLoader());
 
         File inputFile = new File(config.getString("input"));
         File outputFile = new File(config.getString("output"));
@@ -114,6 +120,7 @@ public class Obf implements Opcodes {
         transformers.add(new VariableTransformer(this));
         transformers.add(new InlinerTransformer(this));
         transformers.add(new ConstantPoolTransformer(this));
+        transformers.add(new CodeHiderTransformer(this));
         transformers.add(new PackerTransformer(this));
 
         long start = System.currentTimeMillis();
@@ -248,7 +255,10 @@ public class Obf implements Opcodes {
                     ClassWrapper classNode = new ClassWrapper(!lib);
                     reader.accept(classNode, ClassReader.SKIP_FRAMES);
                     if (lib) libs.add(classNode);
-                    else classes.add(classNode);
+                    else {
+                        classes.add(classNode);
+                    }
+                    loader.addClass(classNode.name, bytes);
                 } else {
                     if (!lib) resources.put(entry.getName(), bytes);
                 }

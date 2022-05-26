@@ -1,5 +1,7 @@
 // dllmain.cpp : Defines the entry point for the DLL application.
 #include "pch.h"
+#include "jni.h"
+#include <iostream>
 
 #define offset(a, b) uintptr_t(uintptr_t(a) + b)
 #define poffset(a, b) *(uintptr_t*) offset(a, b)
@@ -64,10 +66,120 @@ public:
 	}
 };
 
-class jclass {};
+class ConstMethod {
+public:
+	char size[0x30];
+
+	char* code_base() const { return (char*)(this + 1); }
+};
+
+// Helper method 
+extern "C"
+JNIEXPORT jintArray JNICALL Java_vm_NativeHandler_raw_1bytes(JNIEnv * env, jclass cls, jclass target, jstring jm) {
+
+	auto holder = *(uintptr_t*)target;
+	auto klass = poffset(holder, 0x48);
+
+	auto method_name = env->GetStringUTFChars(jm, 0);
+
+	auto cp = poffset(klass, 0xD8);
+
+	auto class_size = 0x50;
+
+	auto base = (intptr_t*)(((char*)cp) + class_size);
+
+	auto methods = reinterpret_cast<Array<void*>*>(poffset(klass, 0x180));
+
+	for (auto i = 0; i < methods->_length; i++) {
+		auto method = methods->at(i);
+
+		auto c_method = (ConstMethod*) poffset(method, 0x8);
+
+		auto name_index = unsigned short(poffset(c_method, 0x22));
+		auto sig_index = unsigned short(poffset(c_method, 0x24));
+
+		auto name_sym = *(Symbol**)&base[name_index];
+		auto sig_sym = *(Symbol**)&base[sig_index];
+		
+		auto name = name_sym->str().append(sig_sym->str());
+
+		auto code_base = c_method->code_base();
+		
+		if (!strcmp(name.c_str(), method_name)) {
+
+			auto j = 0;
+
+			auto code_size = unsigned short(poffset(c_method, 0x20));
+			auto arr = env->NewIntArray(code_size);
+
+			while (j < code_size) {
+				auto bcp = code_base + j;
+				auto bci = *(int*)bcp & 0xff;
+				env->SetIntArrayRegion(arr, j++, 1, reinterpret_cast<jint*>(&bci));
+			}
+
+			return arr;
+		}
+	}
+
+	return 0;
+}
+
 
 extern "C"
-__declspec(dllexport) void __stdcall Java_vm_NativeHandler_decryptConstantPool(void * env, jclass * cls, jclass * target) {
+JNIEXPORT void JNICALL Java_vm_NativeHandler_transformMethod(JNIEnv * env, jclass, jclass target, jstring jm, jintArray jb) {
+
+	auto holder = *(uintptr_t*)target;
+	auto klass = poffset(holder, 0x48);
+
+	auto method_name = env->GetStringUTFChars(jm, 0);
+
+	auto cp = poffset(klass, 0xD8);
+
+	auto class_size = 0x50;
+
+	auto base = (intptr_t*)(((char*)cp) + class_size);
+
+	auto methods = reinterpret_cast<Array<void*>*>(poffset(klass, 0x180));
+
+	auto bytes_size = env->GetArrayLength(jb);
+
+	jint* _code = env->GetIntArrayElements(jb, 0);
+
+	for (auto i = 0; i < methods->_length; i++) {
+		auto method = methods->at(i);
+
+		auto c_method = (ConstMethod*)poffset(method, 0x8);
+
+		auto name_index = unsigned short(poffset(c_method, 0x22));
+		auto sig_index = unsigned short(poffset(c_method, 0x24));
+
+		auto name_sym = *(Symbol**)&base[name_index];
+		auto sig_sym = *(Symbol**)&base[sig_index];
+
+		auto name = name_sym->str().append(sig_sym->str());
+
+		auto code_base = c_method->code_base();
+
+		if (!strcmp(name.c_str(), method_name)) {
+
+			auto code_size = unsigned short(poffset(c_method, 0x20));
+
+			if (code_size != bytes_size) {
+				poffset(c_method, 0x20) = bytes_size;
+			}
+
+			for (auto j = 0; j < bytes_size; j++) {
+				*(code_base + j) = _code[j];
+			}
+
+		}
+	}
+
+}
+
+extern "C"
+JNIEXPORT void JNICALL Java_vm_NativeHandler_decryptConstantPool(JNIEnv * env, jclass cls, jclass target) {
 
 	// JAVA 8 HOTSPOT
 	// add other versions yourself
@@ -96,19 +208,21 @@ __declspec(dllexport) void __stdcall Java_vm_NativeHandler_decryptConstantPool(v
 	for (auto i = 0; i < cp_len; i++) {
 		auto tag = tags->at(i);
 		if (tag.is_int()) {
-			long* val = (long*)&base[i];
+			jint* val = (jint*)&base[i];
 			*val ^= h;
+			*val += (h << 2);
 		}
 		else if (tag.is_long()) {
-			long long* val = (long long*)&base[i];
-			*val ^= (long long(h) << 4);
+			jlong* val = (jlong*)&base[i];
+			*val += h;
+			*val ^= (jlong(h) << 4);
 		}
 		else if (tag.is_double()) {
-			double* val = (double*)&base[i];
+			jdouble* val = (jdouble*)&base[i];
 			*val = cbrt(*val);
 		}
 		else if (tag.is_float()) {
-			float* val = (float*)&base[i];
+			jfloat* val = (jfloat*)&base[i];
 			*val = cbrtf(*val);
 		}
 	}

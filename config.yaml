@@ -1,4 +1,4 @@
-input: eval.jar
+input: input.jar
 output: output.jar
 libs: []
 
@@ -10,7 +10,7 @@ general:
     iterations: 1
 strings:
   tostring:
-    enabled: true
+    enabled: false
     excluded: []
     included: []
     iterations: 1
@@ -21,36 +21,41 @@ misc:
     included: []
     iterations: 1
   inliner:
-    enabled: true
-    excluded: [ ]
-    included: [ ]
+    enabled: false
+    excluded: []
+    included: []
     iterations: 1
     maxPasses: 10
     remove-unused-methods: false
   checksum:
-    enabled: true
-    excluded: [ ]
-    included: [ ]
+    enabled: false
+    excluded: []
+    included: []
     iterations: 1
-    randomHolders: true
-    holders: [ ]
+    randomHolders: false
+    holders: []
     targets:
-      - dev/sim0n/evaluator/Main
+      - Main
     reobf: true
     methodName: "run"
     reduced: false
   packer:
     enabled: false
-    excluded: [ ]
-    included: [ ]
+    excluded: []
+    included: []
     iterations: 1
     resource-name: '/'
     class-name: ~/
     class-super-name: random
     reobf: true
-    forge: false
+    forge: true
 natives:
   constantpool:
+    enabled: true
+    excluded: []
+    included: []
+    iterations: 1
+  codehider:
     enabled: true
     excluded: []
     included: []

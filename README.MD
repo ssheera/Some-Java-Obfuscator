@@ -25,11 +25,11 @@ A modified version of cheatbreaker-obf to test out some ideas I had
 ## Disclaimers
 
 * CodeHider
-  * breaks with the string obf
   * won't go over exceptions
   * skips methodhandle and class ldc
   * skips synthetic methods
   * breaks on classes with generated methods
+  * can break randomly due to constant pool not being updated when generating bytes
 
 ## Usage
 

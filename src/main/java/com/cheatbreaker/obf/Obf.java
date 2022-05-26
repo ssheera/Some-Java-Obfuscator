@@ -43,7 +43,7 @@ public class Obf implements Opcodes {
     private static Obf instance;
 
     private final ThreadLocalRandom random;
-    private final List<ClassWrapper> classes = new ArrayList<>();
+    private List<ClassWrapper> classes = new ArrayList<>();
     private final List<ClassWrapper> libs = new ArrayList<>(65525);
     private final List<Transformer> transformers = new ArrayList<>();
     private final YamlConfiguration config;
@@ -367,6 +367,10 @@ public class Obf implements Opcodes {
 
     public ThreadLocalRandom getRandom() {
         return random;
+    }
+
+    public void setClasses(List<ClassWrapper> classes) {
+        this.classes = classes;
     }
 
     public List<ClassWrapper> getClasses() {

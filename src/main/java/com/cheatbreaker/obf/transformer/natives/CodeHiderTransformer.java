@@ -16,6 +16,9 @@ import java.util.*;
 
 public class CodeHiderTransformer extends Transformer {
 
+    private final List<String> vmExcluded = new ArrayList<>();
+
+
     public CodeHiderTransformer(Obf obf) {
         super(obf);
         canBeIterated = false;
@@ -40,6 +43,8 @@ public class CodeHiderTransformer extends Transformer {
     public void transform(ClassWrapper classNode) {
 
 //        if (!Modifier.isPublic(classNode.access)) return;
+
+        vmExcluded.clear();
 
         String _name = classNode.name + RandomStringUtils.randomNumeric(50);
         String name = classNode.name;
@@ -112,11 +117,9 @@ public class CodeHiderTransformer extends Transformer {
 
         }
 
-        List<String> excluded = new ArrayList<>();
-
         for (MethodNode method : new ArrayList<>(classNode.methods)) {
             if (!safe(method)) {
-                excluded.add(method.name + method.desc);
+                vmExcluded.add(method.name + method.desc);
                 continue;
             }
 
@@ -132,7 +135,7 @@ public class CodeHiderTransformer extends Transformer {
                 bytes = (int[]) klass.getMethod(bytesCallName, Class.class, String.class).invoke(null, klass, method.name + method.desc);
             } catch (Exception ex) {
                 ex.printStackTrace();
-                excluded.add(method.name + method.desc);
+                vmExcluded.add(method.name + method.desc);
                 continue;
             }
 
@@ -140,7 +143,7 @@ public class CodeHiderTransformer extends Transformer {
                     bytes);
         }
 
-        ContextClassWriter cw = new ContextClassWriter(ClassWriter.COMPUTE_FRAMES, true, excluded);
+        ContextClassWriter cw = new ContextClassWriter(ClassWriter.COMPUTE_FRAMES, true, vmExcluded);
         classNode.accept(cw);
 
         obf.addGeneratedClass(classNode.name, cw.toByteArray());
@@ -149,17 +152,30 @@ public class CodeHiderTransformer extends Transformer {
 
     public void setup(ClassWrapper classNode, MethodNode method, String realName) {
 
-        InsnList list = new InsnList();
-        list.add(new LdcInsnNode(Type.getType("L" + realName + ";")));
-        list.add(new LdcInsnNode(method.name + method.desc));
-
-        list.add(AsmUtils.pushInt((short) (realName.hashCode() + method.name.hashCode() +
-                method.desc.hashCode())));
-        list.add(new IntInsnNode(NEWARRAY, T_INT));
-
-        list.add(new MethodInsnNode(INVOKESTATIC, "vm/NativeHandler", "transformMethod", "(Ljava/lang/Class;Ljava/lang/String;[I)V", false));
-
         MethodNode clinit = AsmUtils.getClinit(classNode);
+
+        MethodNode methodNode = new MethodNode(ACC_STATIC,
+                "setup$" + Math.abs(realName.hashCode() + classNode.superName.hashCode() +
+                        method.name.hashCode() + method.desc.hashCode()), "()V", null, null);
+
+        {
+            vmExcluded.add(methodNode.name + methodNode.desc);
+
+            InsnList list = new InsnList();
+            list.add(new LdcInsnNode(Type.getType("L" + realName + ";")));
+            list.add(new LdcInsnNode(method.name + method.desc));
+
+            list.add(new InsnNode(ICONST_0));
+            list.add(new IntInsnNode(NEWARRAY, T_INT));
+
+            list.add(new MethodInsnNode(INVOKESTATIC, "vm/NativeHandler", "transformMethod", "(Ljava/lang/Class;Ljava/lang/String;[I)V", false));
+
+            list.add(new InsnNode(RETURN));
+
+            methodNode.instructions = list;
+
+            classNode.methods.add(methodNode);
+        }
 
         AbstractInsnNode start = null;
 
@@ -173,8 +189,10 @@ public class CodeHiderTransformer extends Transformer {
             }
         }
 
-        if (start != null) clinit.instructions.insert(start, list);
-        else clinit.instructions.insert(list);
+        if (start != null) clinit.instructions.insert(start, new MethodInsnNode(INVOKESTATIC, realName,
+                methodNode.name, methodNode.desc, false));
+        else clinit.instructions.insert(new MethodInsnNode(INVOKESTATIC, realName,
+                methodNode.name, methodNode.desc, false));
     }
 
     public void registerMethod(ClassWrapper classNode, MethodNode method, int[] code) {
@@ -193,13 +211,13 @@ public class CodeHiderTransformer extends Transformer {
             list.add(new InsnNode(IASTORE));
         }
 
-        for (AbstractInsnNode instruction : AsmUtils.getClinit(classNode).instructions) {
-            if (instruction instanceof IntInsnNode && ((IntInsnNode) instruction).operand == (short) (classNode.name.hashCode() + method.name.hashCode() +
-                    method.desc.hashCode())) {
-                method.instructions.insert(instruction.getNext(), list);
-                method.instructions.remove(instruction.getNext());
+        MethodNode mn = AsmUtils.findMethod(classNode, "setup$" + Math.abs(classNode.name.hashCode() + classNode.superName.hashCode() +
+                method.name.hashCode() + method.desc.hashCode()), "()V");
+        for (AbstractInsnNode instruction : mn.instructions) {
+            if (instruction instanceof IntInsnNode) {
+                method.instructions.insert(instruction, list);
+                method.instructions.remove(instruction.getPrevious());
                 method.instructions.remove(instruction);
-                break;
             }
         }
 
@@ -229,21 +247,16 @@ public class CodeHiderTransformer extends Transformer {
 
     public boolean safe(MethodNode method) {
         if (method.name.equals("<clinit>")) return false;
-//        if (method.name.equals("<init>")) return false;
         if (method.instructions.size() == 0) return false;
+        if (method.instructions.size() >= AsmUtils.MAX_INSTRUCTIONS/5) return false;
         if (method.tryCatchBlocks.size() > 0) return false;
         if (!method.exceptions.isEmpty()) return false;
         if ((method.access & ACC_SYNTHETIC) != 0) return false;
         for (AbstractInsnNode instruction : method.instructions) {
-//            if (instruction instanceof FieldInsnNode) return false;
-//            if (instruction instanceof TypeInsnNode) return false;
-//            if (instruction instanceof MethodInsnNode) return false;
-//            if (instruction instanceof MultiANewArrayInsnNode) return false;
             if (instruction instanceof LdcInsnNode) {
                 LdcInsnNode ldc = (LdcInsnNode) instruction;
                 if (ldc.cst instanceof Handle || ldc.cst instanceof Type) return false;
             }
-//            if (instruction instanceof InvokeDynamicInsnNode) return false;
         }
         return true;
     }

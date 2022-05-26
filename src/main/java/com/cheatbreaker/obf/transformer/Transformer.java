@@ -37,6 +37,8 @@ import org.objectweb.asm.Opcodes;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Vector;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -104,7 +106,24 @@ public abstract class Transformer implements Opcodes {
             }
         }
 
+        List<ClassWrapper> clone = new ArrayList<>(obf.getClasses());
+
+        for (ClassWrapper classNode : clone) {
+            for (String s : excluded) {
+                if (classNode.name.startsWith(s)) {
+                    obf.getClasses().remove(classNode);
+                }
+            }
+            for (String s : included) {
+                if (!classNode.name.startsWith(s)) {
+                    obf.getClasses().remove(classNode);
+                }
+            }
+        }
+
         after();
+
+        obf.setClasses(clone);
     }
 
     protected void after() {}

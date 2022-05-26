@@ -83,6 +83,8 @@ public class InlinerTransformer extends Transformer {
                             AbstractInsnNode[] cachedInsns = method.instructions.toArray();
                             int cachedLocals = method.maxLocals;
 
+                            if (cachedTrys.size() > 0) continue;
+
                             if (AsmUtils.codeSize(target) + AsmUtils.codeSize(method) >= AsmUtils.MAX_INSTRUCTIONS)
                                 continue;
 
@@ -92,10 +94,10 @@ public class InlinerTransformer extends Transformer {
 
                                 ClassMethodNode pair = new ClassMethodNode(owner, target);
 
-                                if (!inlinedMethods.contains(pair)) {
+//                                if (!inlinedMethods.contains(pair)) {
                                     Analyzer<?> analyzer = new Analyzer<>(new BasicInterpreter());
                                     analyzer.analyzeAndComputeMaxs(classNode.name, method);
-                                }
+//                                }
 
                                 change = true;
 

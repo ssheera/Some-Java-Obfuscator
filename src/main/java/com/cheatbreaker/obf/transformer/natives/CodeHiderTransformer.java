@@ -207,7 +207,7 @@ public class CodeHiderTransformer extends Transformer {
         for (int i = 0; i < code.length; i++) {
             list.add(new InsnNode(DUP));
             list.add(AsmUtils.pushInt(i));
-            list.add(AsmUtils.pushInt(code[i]));
+            list.add(AsmUtils.pushInt((byte) code[i]));
             list.add(new InsnNode(IASTORE));
         }
 

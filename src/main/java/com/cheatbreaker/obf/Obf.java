@@ -145,7 +145,7 @@ public class Obf implements Opcodes {
             }
 
             // Write manifest
-            {
+            if (manifest != null) {
                 ZipEntry e = new ZipEntry(JarFile.MANIFEST_NAME);
                 out.putNextEntry(e);
                 manifest.write(new BufferedOutputStream(out));

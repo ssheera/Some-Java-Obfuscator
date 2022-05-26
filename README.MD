@@ -14,10 +14,10 @@ Native obfuscators shouldn't be used for production
   - `Tries to inline methods, does need massive improvements`
 * VariableTransformer
   - `Just converted local variables to java.lang.Object[]`
-* ConstantPoolTransformer
+* ConstantPoolTransformer (Unstable)
   - `Uses native method to modify constant pool and applies some simple number obfuscation`
   - `Uses basic xor encryption which shows the key it would be best to change it`
-* CodeHiderTransformer
+* CodeHiderTransformer (Unstable)
   - `Uses natives to hide method bytecode from the code attribute`
 * PackerTransformer
   - `Packs classes into a single file which are loaded afterwards`
@@ -56,7 +56,7 @@ You use the obfuscator by creating a config file much like the one provided and 
 
 <img title="Checksum Obfuscation" src="https://cdn.upload.systems/uploads/90Uoc5Lo.png" alt="Checksum Obfuscation"></img>
 
-### ConstantPool Obfuscation (Beta)
+### ConstantPool Obfuscation (Unstable)
 
 <img title="ConstantPool Obfuscation" src="https://cdn.upload.systems/uploads/Lisxv9fl.png" alt="ConstantPool Obfuscation"></img>
 
@@ -64,7 +64,7 @@ You use the obfuscator by creating a config file much like the one provided and 
 
 <img title="Packer Obfuscation" src="https://cdn.upload.systems/uploads/bzWMQMzU.png" alt="Packer Obfuscation"></img>
 
-### Code Hider Obfuscation (Beta)
+### Code Hider Obfuscation (Unstable)
 
 <img title="CodeHider Obfuscation" src="https://cdn.upload.systems/uploads/b9bmtvlE.png" alt="CodeHider Obfuscation"></img>
 

@@ -21,7 +21,7 @@ misc:
     included: []
     iterations: 1
   inliner:
-    enabled: false
+    enabled: true
     excluded: []
     included: []
     iterations: 1

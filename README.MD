@@ -25,7 +25,7 @@ A modified version of cheatbreaker-obf to test out some ideas I had
 ## Disclaimers
 
 * CodeHider
-  * breaks with inliner or string
+  * breaks with the string obf
   * won't go over exceptions
   * skips methodhandle and class ldc
   * skips synthetic methods

@@ -256,6 +256,8 @@ public class CodeHiderTransformer extends Transformer {
             if (instruction instanceof LdcInsnNode) {
                 LdcInsnNode ldc = (LdcInsnNode) instruction;
                 if (ldc.cst instanceof Handle || ldc.cst instanceof Type) return false;
+            } else if (instruction instanceof InvokeDynamicInsnNode) {
+                return false;
             }
         }
         return true;

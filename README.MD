@@ -4,6 +4,8 @@ A modified version of cheatbreaker-obf to test out some ideas I had
 
 ## Features
 
+Native obfuscators shouldn't be used for production
+
 * StripTransformer
   - `Strips debug information from classes, methods and fields`
 * ChecksumTransformer
@@ -54,7 +56,7 @@ You use the obfuscator by creating a config file much like the one provided and 
 
 <img title="Checksum Obfuscation" src="https://cdn.upload.systems/uploads/90Uoc5Lo.png" alt="Checksum Obfuscation"></img>
 
-### ConstantPool Obfuscation
+### ConstantPool Obfuscation (Beta)
 
 <img title="ConstantPool Obfuscation" src="https://cdn.upload.systems/uploads/Lisxv9fl.png" alt="ConstantPool Obfuscation"></img>
 

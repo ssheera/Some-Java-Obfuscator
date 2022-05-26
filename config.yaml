@@ -10,7 +10,7 @@ general:
     iterations: 1
 strings:
   tostring:
-    enabled: false
+    enabled: true
     excluded: []
     included: []
     iterations: 1
@@ -21,7 +21,7 @@ misc:
     included: []
     iterations: 1
   inliner:
-    enabled: true
+    enabled: false
     excluded: []
     included: []
     iterations: 1
@@ -56,7 +56,7 @@ natives:
     included: []
     iterations: 1
   codehider:
-    enabled: true
+    enabled: false
     excluded: []
     included: []
     iterations: 1

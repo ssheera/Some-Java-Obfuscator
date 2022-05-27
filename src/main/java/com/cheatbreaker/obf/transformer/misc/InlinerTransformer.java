@@ -159,6 +159,7 @@ public class InlinerTransformer extends Transformer {
 
         if (excluded.contains(classNode.name + "." + method.name + method.desc)) return false;
         if (excluded.contains(method.name + method.desc)) return false;
+        if (classNode.name.equals("java/lang/Object")) return false;
 
         if (method.instructions.size() <= 0) return false;
         for (AbstractInsnNode instruction : method.instructions) {

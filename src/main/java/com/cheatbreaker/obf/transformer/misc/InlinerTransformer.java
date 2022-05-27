@@ -11,6 +11,8 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.Analyzer;
 import org.objectweb.asm.tree.analysis.BasicInterpreter;
+import org.objectweb.asm.tree.analysis.BasicValue;
+import org.objectweb.asm.tree.analysis.Frame;
 
 import java.lang.reflect.Modifier;
 import java.util.*;
@@ -79,48 +81,41 @@ public class InlinerTransformer extends Transformer {
                                 continue;
                             }
 
-                            List<TryCatchBlockNode> cachedTrys = new ArrayList<>(method.tryCatchBlocks);
-                            AbstractInsnNode[] cachedInsns = method.instructions.toArray();
-                            int cachedLocals = method.maxLocals;
-
-                            if (cachedTrys.size() > 0) continue;
+//                            List<TryCatchBlockNode> cachedTrys = new ArrayList<>(method.tryCatchBlocks);
+//                            AbstractInsnNode[] cachedInsns = method.instructions.toArray();
+//                            int cachedLocals = method.maxLocals;
 
                             if (AsmUtils.codeSize(target) + AsmUtils.codeSize(method) >= AsmUtils.MAX_INSTRUCTIONS)
                                 continue;
 
-                            try {
+//                            try {
 
-                                inline(target, method, node);
+                            inline(classNode, target, method, node);
 
-                                ClassMethodNode pair = new ClassMethodNode(owner, target);
+//                                ClassMethodNode pair = new ClassMethodNode(owner, target);
 
-//                                if (!inlinedMethods.contains(pair)) {
-                                    Analyzer<?> analyzer = new Analyzer<>(new BasicInterpreter());
-                                    analyzer.analyzeAndComputeMaxs(classNode.name, method);
-//                                }
+//                                Analyzer<?> analyzer = new Analyzer<>(new BasicInterpreter());
+//                                analyzer.analyzeAndComputeMaxs(classNode.name, method);
 
-                                change = true;
+//                                change = true;
 
-                                if (!inlinedMethods.contains(pair) && owner.modify)
-                                    inlinedMethods.add(pair);
+//                                if (!inlinedMethods.contains(pair) && owner.modify)
+//                                    inlinedMethods.add(pair);
 
-                                log("Inlined %s.%s%s", owner.name, target.name, target.desc);
+//                                log("Inlined %s.%s%s", owner.name, target.name, target.desc);
 
-                            } catch (Exception ex) {
+//                            } catch (Exception ex) {
                                 // Failed to inline
-                                error("Failed to inline method %s.%s%s [%s]", node.owner, node.name, node.desc, ex.getMessage());
+//                                error("Failed to inline method %s.%s%s [%s]", node.owner, node.name, node.desc, ex.getMessage());
 
-                                method.tryCatchBlocks = cachedTrys;
-                                method.instructions.clear();
-                                for (AbstractInsnNode cachedInsn : cachedInsns) {
-                                    method.instructions.add(cachedInsn);
-                                }
-                                method.maxLocals = cachedLocals;
-                            }
+//                                method.tryCatchBlocks = cachedTrys;
+//                                method.instructions.clear();
+//                                for (AbstractInsnNode cachedInsn : cachedInsns) {
+//                                    method.instructions.add(cachedInsn);
+//                                }
+//                                method.maxLocals = cachedLocals;
+//                            }
                         }
-                        //else {
-                        //    error("Could not find method %s.%s%s", node.owner, node.name, node.desc);
-                        //}
                     }
                 }
             }
@@ -148,25 +143,22 @@ public class InlinerTransformer extends Transformer {
                         MethodNode target = AsmUtils.findMethodSuper(owner, ((MethodInsnNode) instruction).name, ((MethodInsnNode) instruction).desc);
                         if (target == null) continue;
                         ClassMethodNode classMethodNode = new ClassMethodNode(owner, target);
-                        for (ClassMethodNode inlinedMethod : inlinedMethods) {
-                            if (inlinedMethod.equals(classMethodNode)) {
-                                toRemove.remove(inlinedMethod);
-                                log("Removed inlined method %s.%s%s", classNode.name, method.name, method.desc);
-                                break;
-                            }
-                        }
+                        toRemove.removeIf(cmn -> cmn.equals(classMethodNode));
                     }
                 }
             }
         }
         for (ClassMethodNode classMethodNode : toRemove) {
             classMethodNode.getClassWrapper().methods.remove(classMethodNode.getMethodNode());
+            log("Removed inlined method %s.%s%s", classMethodNode.getClassWrapper().name,
+                    classMethodNode.getMethodNode().name, classMethodNode.getMethodNode().desc);
         }
     }
 
     public boolean canInline(ClassWrapper ctx, ClassWrapper classNode, MethodNode method, boolean debug) {
 
         if (excluded.contains(classNode.name + "." + method.name + method.desc)) return false;
+        if (excluded.contains(method.name + method.desc)) return false;
 
         if (method.instructions.size() <= 0) return false;
         for (AbstractInsnNode instruction : method.instructions) {
@@ -349,11 +341,12 @@ public class InlinerTransformer extends Transformer {
         return true;
     }
 
-    public void inline(MethodNode toInlineMethod, MethodNode targetMethod, AbstractInsnNode target) {
+    public void inline(ClassWrapper ctx, MethodNode targetMethod, MethodNode ctxMethod, AbstractInsnNode target) {
 
-        InsnList toInline = toInlineMethod.instructions;
-
-        InsnList toInlineInto = targetMethod.instructions;
+        InsnList toInline = targetMethod.instructions;
+        InsnList toInlineInto = ctxMethod.instructions;
+        InsnList restore = new InsnList();
+        InsnList save = new InsnList();
 
         {
 
@@ -365,10 +358,10 @@ public class InlinerTransformer extends Transformer {
                 }
             }
 
-            for (TryCatchBlockNode tryCatchBlock : toInlineMethod.tryCatchBlocks) {
+            for (TryCatchBlockNode tryCatchBlock : targetMethod.tryCatchBlocks) {
                 TryCatchBlockNode cloned = new TryCatchBlockNode(labels.get(tryCatchBlock.start),
                         labels.get(tryCatchBlock.end), labels.get(tryCatchBlock.handler), tryCatchBlock.type);
-                targetMethod.tryCatchBlocks.add(cloned);
+                ctxMethod.tryCatchBlocks.add(cloned);
             }
 
             InsnList list = new InsnList();
@@ -384,9 +377,7 @@ public class InlinerTransformer extends Transformer {
         InsnList list = new InsnList();
 
         int retVar = -1;
-        Type retType = Type.getReturnType(toInlineMethod.desc);
-
-//        int currentLocals = toInlineMethod.maxLocals;
+        Type retType = Type.getReturnType(targetMethod.desc);
 
         for (AbstractInsnNode insn : toInline) {
             if (insn instanceof InsnNode) {
@@ -395,13 +386,10 @@ public class InlinerTransformer extends Transformer {
 
                     if (insn.getOpcode() != RETURN) {
                         if (retVar == -1) {
-                            retVar = toInlineMethod.maxLocals;
+                            retVar = targetMethod.maxLocals;
                         }
                         list2.add(new VarInsnNode(retType.getOpcode(ISTORE), retVar));
                     }
-
-                    LabelNode label3 = new LabelNode();
-                    list2.add(label3);
 
                     list2.add(new JumpInsnNode(GOTO, end));
 
@@ -412,22 +400,48 @@ public class InlinerTransformer extends Transformer {
             }
         }
 
+        Analyzer<BasicValue> analyzer = new Analyzer<>(new BasicInterpreter());
+
+        Frame<BasicValue>[] frames;
+
+        try {
+            frames = analyzer.analyzeAndComputeMaxs(ctx.name, ctxMethod);
+
+            int argsStack = Modifier.isStatic(targetMethod.access) ? 0 : 1;
+            argsStack += Type.getArgumentTypes(targetMethod.desc).length;
+
+            Frame<BasicValue> frame = frames[target.index];
+            if (frame != null) {
+                int var = ctxMethod.maxLocals;
+                for (int i = 0; i < frame.getStackSize() - argsStack; i++) {
+                    Type type = frame.getStack(i).getType();
+                    save.insert(new VarInsnNode(type.getOpcode(ISTORE), var));
+                    restore.add(new VarInsnNode(type.getOpcode(ILOAD), var));
+                    var += type.getSize();
+                }
+                ctxMethod.maxLocals = var;
+            }
+
+        } catch (Exception ex) {
+            error("Failed to analyze method %s ", ex.getMessage());
+        }
+
         list.add(start);
 
         MethodInsnNode methodInsn = (MethodInsnNode) target;
-        int locals = targetMethod.maxLocals;
+        int locals = ctxMethod.maxLocals;
 
         Type[] args = Type.getArgumentTypes(methodInsn.desc);
 
         List<AbstractInsnNode> nodes = new ArrayList<>();
 
         if (methodInsn.getOpcode() != INVOKESTATIC) {
-            nodes.add(new VarInsnNode(ASTORE, targetMethod.maxLocals++));
+            nodes.add(new VarInsnNode(ASTORE, ctxMethod.maxLocals++));
         }
 
         for (Type arg : args) {
-            nodes.add(new VarInsnNode(arg.getOpcode(ISTORE), targetMethod.maxLocals));
-            targetMethod.maxLocals += arg.getSize();
+            nodes.add(new VarInsnNode(arg.getOpcode(ISTORE), ctxMethod.maxLocals));
+            ctxMethod.maxLocals += arg.getSize();
         }
 
         Collections.reverse(nodes);
@@ -435,6 +449,8 @@ public class InlinerTransformer extends Transformer {
         for (AbstractInsnNode node : nodes) {
             list.add(node);
         }
+
+        list.add(save);
 
         for (AbstractInsnNode insn : toInline) {
             if (insn instanceof VarInsnNode) {
@@ -452,6 +468,9 @@ public class InlinerTransformer extends Transformer {
         list.add(toInline);
 
         list.add(end);
+
+        list.add(restore);
+
         if (retVar != -1) {
             list.add(new VarInsnNode(retType.getOpcode(ILOAD), retVar));
         }
@@ -459,4 +478,5 @@ public class InlinerTransformer extends Transformer {
         toInlineInto.insert(target, list);
         toInlineInto.remove(target);
     }
+
 }

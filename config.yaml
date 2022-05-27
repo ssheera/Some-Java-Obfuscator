@@ -1,7 +1,13 @@
-input: input.jar
+input: eval.jar
 output: output.jar
 libs: []
 
+flow:
+  exceptions:
+    enabled: true
+    excluded: []
+    included: []
+    iterations: 1
 general:
   strip:
     enabled: true
@@ -10,7 +16,7 @@ general:
     iterations: 1
 strings:
   tostring:
-    enabled: true
+    enabled: false
     excluded: []
     included: []
     iterations: 1
@@ -21,21 +27,23 @@ misc:
     included: []
     iterations: 1
   inliner:
-    enabled: false
+    enabled: true
     excluded: []
+#      - java/util/Arrays.hashCode([C)I
+#      - toString()Ljava/lang/String;
     included: []
     iterations: 1
     maxPasses: 10
-    remove-unused-methods: false
+    remove-unused-methods: true
   checksum:
-    enabled: false
+    enabled: true
     excluded: []
     included: []
     iterations: 1
-    randomHolders: false
+    randomHolders: true
     holders: []
     targets:
-      - Main
+      - dev/sim0n/evaluator/Main
     reobf: true
     methodName: "run"
     reduced: false
@@ -51,7 +59,7 @@ misc:
     forge: true
 natives:
   constantpool:
-    enabled: true
+    enabled: false
     excluded: []
     included: []
     iterations: 1

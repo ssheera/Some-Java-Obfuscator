@@ -1,6 +1,7 @@
 package com.cheatbreaker.obf;
 
 import com.cheatbreaker.obf.transformer.Transformer;
+import com.cheatbreaker.obf.transformer.flow.ExceptionTransformer;
 import com.cheatbreaker.obf.transformer.general.StripTransformer;
 import com.cheatbreaker.obf.transformer.misc.ChecksumTransformer;
 import com.cheatbreaker.obf.transformer.misc.InlinerTransformer;
@@ -117,8 +118,9 @@ public class Obf implements Opcodes {
         transformers.add(new StripTransformer(this));
         transformers.add(new ChecksumTransformer(this));
         transformers.add(new ToStringTransformer(this));
-        transformers.add(new VariableTransformer(this));
+        transformers.add(new ExceptionTransformer(this));
         transformers.add(new InlinerTransformer(this));
+        transformers.add(new VariableTransformer(this));
         transformers.add(new ConstantPoolTransformer(this));
         transformers.add(new CodeHiderTransformer(this));
         transformers.add(new PackerTransformer(this));

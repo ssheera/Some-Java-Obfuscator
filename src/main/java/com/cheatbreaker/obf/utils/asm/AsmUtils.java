@@ -168,6 +168,9 @@ public class AsmUtils implements Opcodes{
                 list.add(new TypeInsnNode(CHECKCAST, "java/lang/Double"));
                 list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false));
                 break;
+            default:
+                if (!desc.equals("java/lang/Object")) list.add(new TypeInsnNode(CHECKCAST, desc));
+                break;
         }
     }
 
@@ -198,39 +201,7 @@ public class AsmUtils implements Opcodes{
                 list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false));
                 break;
             default:
-                list.add(new TypeInsnNode(CHECKCAST, desc));
-                break;
-        }
-    }
-
-    public static void boxPrimitive(String desc, List<AbstractInsnNode> list) {
-        switch (desc) {
-            case "I":
-                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false));
-                break;
-            case "Z":
-                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false));
-                break;
-            case "B":
-                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Byte", "valueOf", "(B)Ljava/lang/Byte;", false));
-                break;
-            case "C":
-                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Character", "valueOf", "(C)Ljava/lang/Character;", false));
-                break;
-            case "S":
-                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Short", "valueOf", "(S)Ljava/lang/Short;", false));
-                break;
-            case "J":
-                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false));
-                break;
-            case "F":
-                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Float", "valueOf", "(F)Ljava/lang/Float;", false));
-                break;
-            case "D":
-                list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false));
-                break;
-            default:
-                list.add(new TypeInsnNode(CHECKCAST, desc));
+                if (!desc.equals("java/lang/Object")) list.add(new TypeInsnNode(CHECKCAST, desc));
                 break;
         }
     }

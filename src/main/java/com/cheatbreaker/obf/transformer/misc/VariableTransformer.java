@@ -81,36 +81,26 @@ public class VariableTransformer extends Transformer {
                             failedVars.add(var.var);
                             continue;
                         }
-                        Type type = frame.getStack(frame.getStackSize() - 1).getType();
 
-                        switch (var.getOpcode()) {
-                            case ILOAD:
-                            case ISTORE:
-                                type = Type.INT_TYPE;
-                                break;
-                            case FLOAD:
-                            case FSTORE:
-                                type = Type.FLOAT_TYPE;
-                                break;
-                            case LLOAD:
-                            case LSTORE:
-                                type = Type.LONG_TYPE;
-                                break;
-                            case DLOAD:
-                            case DSTORE:
-                                type = Type.DOUBLE_TYPE;
-                                break;
+                        BasicValue value;
+                        Type type;
+
+                        if (load) {
+                            value = frame.getLocal(var.var);
+                            type = value.getType();
+                        } else {
+                            value = frame.getStack(frame.getStackSize() - 1);
+                            type = value.getType();
                         }
 
-                        if (type == null) {
-                            failedVars.add(var.var);
-                            continue;
-                        }
-                        if (type.getSize() > 1) {
-                            failedVars.add(var.var);
-                            continue;
-                        }
-                        if (type.getInternalName().equals("null") || type.getInternalName().equals("java/lang/Object")) {
+//                        if (type.getSize() > 1) {
+//                            failedVars.add(var.var);
+//                            continue;
+//                        }
+                        if (value == BasicValue.UNINITIALIZED_VALUE ||
+                                type.getSort() == Type.OBJECT ||
+                                type.getInternalName().equals("null") ||
+                        type.getInternalName().equals("java/lang/Object")) {
                             failedVars.add(var.var);
                             continue;
                         }
@@ -124,24 +114,18 @@ public class VariableTransformer extends Transformer {
                         if (load) {
                             list.add(AsmUtils.pushInt(varMap.get(var.var)));
                             list.add(new InsnNode(AALOAD));
-                            if (var.getOpcode() == ALOAD) {
-                                list.add(new TypeInsnNode(CHECKCAST, type.getInternalName()));
-                            } else {
-                                AsmUtils.unboxPrimitive(type.getDescriptor(), list);
-                            }
-                            method.instructions.insertBefore(instruction, list);
-                            method.instructions.remove(instruction);
+                            AsmUtils.unboxPrimitive(type.getDescriptor(), list);
                         } else {
-                            list.add(new InsnNode(SWAP));
+                            AsmUtils.swap(type, list);
                             list.add(AsmUtils.pushInt(varMap.get(var.var)));
-                            list.add(new InsnNode(SWAP));
+                            AsmUtils.swap(type, list);
                             if (var.getOpcode() != ASTORE) {
                                 AsmUtils.boxPrimitive(type.getDescriptor(), list);
                             }
                             list.add(new InsnNode(AASTORE));
-                            method.instructions.insertBefore(instruction, list);
-                            method.instructions.remove(instruction);
                         }
+                        method.instructions.insertBefore(instruction, list);
+                        method.instructions.remove(instruction);
                     }
                 }
 

@@ -1,4 +1,4 @@
-input: eval.jar
+input: ..\hwidgen.jar
 output: output.jar
 libs: []
 
@@ -29,14 +29,12 @@ misc:
   inliner:
     enabled: true
     excluded: []
-#      - java/util/Arrays.hashCode([C)I
-#      - toString()Ljava/lang/String;
     included: []
     iterations: 1
     maxPasses: 10
     remove-unused-methods: true
   checksum:
-    enabled: true
+    enabled: false
     excluded: []
     included: []
     iterations: 1

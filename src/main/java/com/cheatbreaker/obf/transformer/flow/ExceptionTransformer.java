@@ -76,32 +76,13 @@ public class ExceptionTransformer extends Transformer {
 
                         TryCatchBlockNode tryCatch = new TryCatchBlockNode(start, end, handler, handlerName);
 
-                        switch (var.getOpcode()) {
-                            case ILOAD:
-                            case ISTORE:
-                                type = Type.INT_TYPE;
-                                break;
-                            case FLOAD:
-                            case FSTORE:
-                                type = Type.FLOAT_TYPE;
-                                break;
-                            case LLOAD:
-                            case LSTORE:
-                                type = Type.LONG_TYPE;
-                                break;
-                            case DLOAD:
-                            case DSTORE:
-                                type = Type.DOUBLE_TYPE;
-                                break;
-                        }
-
                         if (type == null) {
                             continue;
                         }
                         if (type.getSize() > 1) {
                             continue;
                         }
-                        if (type.getInternalName().equals("null") || type.getInternalName().equals("java/lang/Object")) {
+                        if (type.getSort() == Type.OBJECT || type.getInternalName().equals("null") || type.getInternalName().equals("java/lang/Object")) {
                             continue;
                         }
 

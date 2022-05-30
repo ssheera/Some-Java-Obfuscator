@@ -6,6 +6,7 @@ import com.cheatbreaker.obf.utils.asm.AsmUtils;
 import com.cheatbreaker.obf.utils.asm.ClassWrapper;
 import com.cheatbreaker.obf.utils.asm.NodeAccess;
 import com.cheatbreaker.obf.utils.pair.ClassMethodNode;
+import com.cheatbreaker.obf.utils.tree.HierarchyUtils;
 import lombok.SneakyThrows;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
@@ -45,13 +46,15 @@ public class InlinerTransformer extends Transformer {
 
         passes.remove(target);
 
-        for (MethodNode method : classNode.methods) {
-            boolean change = true;
-            while (change) {
-
-                change = visitMethod(classNode, method);
+        boolean change;
+        do {
+            change = false;
+            for (MethodNode method : classNode.methods) {
+                if (visitMethod(classNode, method)) {
+                    change = true;
+                }
             }
-        }
+        } while (change);
     }
 
     @SneakyThrows
@@ -81,40 +84,20 @@ public class InlinerTransformer extends Transformer {
                                 continue;
                             }
 
-//                            List<TryCatchBlockNode> cachedTrys = new ArrayList<>(method.tryCatchBlocks);
-//                            AbstractInsnNode[] cachedInsns = method.instructions.toArray();
-//                            int cachedLocals = method.maxLocals;
-
                             if (AsmUtils.codeSize(target) + AsmUtils.codeSize(method) >= AsmUtils.MAX_INSTRUCTIONS)
                                 continue;
 
-//                            try {
-
                             inline(classNode, target, method, node);
 
-//                                ClassMethodNode pair = new ClassMethodNode(owner, target);
+                            log("Inlined %s.%s%s", owner.name, target.name, target.desc);
 
-//                                Analyzer<?> analyzer = new Analyzer<>(new BasicInterpreter());
-//                                analyzer.analyzeAndComputeMaxs(classNode.name, method);
+                            change = true;
 
-//                                change = true;
+                            ClassMethodNode pair = new ClassMethodNode(owner, target);
 
-//                                if (!inlinedMethods.contains(pair) && owner.modify)
-//                                    inlinedMethods.add(pair);
+                            if (!inlinedMethods.contains(pair) && owner.modify)
+                                inlinedMethods.add(pair);
 
-//                                log("Inlined %s.%s%s", owner.name, target.name, target.desc);
-
-//                            } catch (Exception ex) {
-                                // Failed to inline
-//                                error("Failed to inline method %s.%s%s [%s]", node.owner, node.name, node.desc, ex.getMessage());
-
-//                                method.tryCatchBlocks = cachedTrys;
-//                                method.instructions.clear();
-//                                for (AbstractInsnNode cachedInsn : cachedInsns) {
-//                                    method.instructions.add(cachedInsn);
-//                                }
-//                                method.maxLocals = cachedLocals;
-//                            }
                         }
                     }
                 }
@@ -209,10 +192,17 @@ public class InlinerTransformer extends Transformer {
                         continue;
                     }
                 }
+
+                if (instruction.getOpcode() == CHECKCAST) {
+                    if (type.startsWith("L") && type.endsWith(";")) {
+                        type = type.substring(1, type.length() - 1);
+                    }
+                }
+
                 ClassWrapper ownerClass = obf.assureLoaded(type);
                 if (ownerClass == null) {
                     if (debug) {
-                        error("[T] Could not find class %s", type);
+                        error("[T] Could not find class %s, opcode %d", type);
                     }
                     return false;
                 }
@@ -274,12 +264,46 @@ public class InlinerTransformer extends Transformer {
                 methodNode.access = access.access;
             } else if (instruction instanceof InvokeDynamicInsnNode) {
                 InvokeDynamicInsnNode node = (InvokeDynamicInsnNode) instruction;
-                if (node.bsm.getOwner().contains("LambdaMetafactory")) {
+                String owner = node.bsm.getOwner();
+                String name = node.bsm.getName();
+                String desc = node.bsm.getDesc();
+
+                ClassWrapper ownerClass = obf.assureLoaded(owner);
+                if (ownerClass == null) {
                     if (debug) {
-                        error("Cannot inline LambdaMetafactory");
+                        error("[INDY] Could not find class %s [%s.%s%s]", owner, owner, name, desc);
                     }
                     return false;
                 }
+
+                if (!canAccess(ctx, ownerClass)) {
+                    if (debug) {
+                        error("[INDY] Class %s is not accessible from %s", ownerClass.name, ctx.name);
+                    }
+                    return false;
+                }
+
+                MethodNode methodNode = AsmUtils.findMethodSuper(ownerClass, name, desc);
+                if (methodNode == null) {
+                    if (debug) {
+                        error("[INDY] Could not find method %s.%s%s", owner, name, desc);
+                    }
+                    return false;
+                }
+                NodeAccess access = new NodeAccess(methodNode.access);
+                if (!checkAccess(access, classNode, ownerClass)) {
+                    if (debug) {
+                        error("[INDY] Method %s.%s%s is not accessible", ownerClass.name, name, desc);
+                    }
+                    return false;
+                }
+                if (!checkAccess(access, ctx, ownerClass)) {
+                    if (debug) {
+                        error("[INDY] Method %s.%s%s is not accessible", ownerClass.name, name, desc);
+                    }
+                    return false;
+                }
+                methodNode.access = access.access;
             }
         }
         return true;
@@ -304,6 +328,11 @@ public class InlinerTransformer extends Transformer {
             }
         }
 
+        if (!Modifier.isPublic(ownerClass.access) && ownerClass.modify && changeAccess) {
+            ownerClass.access = fixAccess(ownerClass.access);
+            return canAccess(ctx, ownerClass);
+        }
+
         return Modifier.isPublic(ownerClass.access);
     }
 
@@ -317,29 +346,43 @@ public class InlinerTransformer extends Transformer {
         return access;
     }
 
+    /**
+     * Checks if the given access is accessible from the given context.
+     * @param access Holder for access flag
+     * @param classNode What is going to be accessing this
+     * @param ownerClass The class holding this field/method/...
+     * @return
+     */
     private boolean checkAccess(NodeAccess access, ClassWrapper classNode, ClassWrapper ownerClass) {
-        if (!Modifier.isPublic(access.access) && !ownerClass.modify) {
-            if (!classNode.name.equals(ownerClass.name)) {
-                ClassWrapper superOwnerClass = ownerClass;
-                boolean found = false;
-                while (true) {
-                    superOwnerClass = obf.assureLoaded(superOwnerClass.superName);
-                    if (superOwnerClass == null) break;
-                    if (superOwnerClass.name.equals(classNode.name)) break;
-                    if (superOwnerClass.name.equals(ownerClass.name)) {
-                        if (Modifier.isProtected(access.access)) {
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-                return found;
+
+        int acc = access.access;
+        if (Modifier.isPublic(acc))
+            return true;
+
+        if (!Modifier.isPublic(acc) && classNode.name.equals(ownerClass.name))
+            return true;
+
+        if (Modifier.isProtected(acc)) {
+            String parent = ownerClass.name;
+            if (HierarchyUtils.isAssignableFrom(parent, classNode.name)) {
+                return true;
             }
-        } else if (changeAccess && !Modifier.isPublic(access.access) && ownerClass.modify) {
-            access.access = fixAccess(access.access);
+        }
+
+        if (!Modifier.isPrivate(acc)) {
+            String pkg1 = AsmUtils.parentName(classNode.name);
+            String pkg2 = AsmUtils.parentName(ownerClass.name);
+            if (pkg1.equals(pkg2)) {
+                return true;
+            }
+        }
+
+        if (ownerClass.modify) {
+            access.access = fixAccess(acc);
             return checkAccess(access, classNode, ownerClass);
         }
-        return true;
+
+        return false;
     }
 
     public void inline(ClassWrapper ctx, MethodNode targetMethod, MethodNode ctxMethod, AbstractInsnNode target) {
@@ -388,6 +431,7 @@ public class InlinerTransformer extends Transformer {
                     if (insn.getOpcode() != RETURN) {
                         if (retVar == -1) {
                             retVar = targetMethod.maxLocals;
+                            targetMethod.maxLocals += retType.getSize();
                         }
                         list2.add(new VarInsnNode(retType.getOpcode(ISTORE), retVar));
                     }
@@ -406,6 +450,7 @@ public class InlinerTransformer extends Transformer {
         Frame<BasicValue>[] frames;
 
         try {
+
             frames = analyzer.analyzeAndComputeMaxs(ctx.name, ctxMethod);
 
             int argsStack = Modifier.isStatic(targetMethod.access) ? 0 : 1;
@@ -416,9 +461,15 @@ public class InlinerTransformer extends Transformer {
                 int var = ctxMethod.maxLocals;
                 for (int i = 0; i < frame.getStackSize() - argsStack; i++) {
                     Type type = frame.getStack(i).getType();
-                    save.insert(new VarInsnNode(type.getOpcode(ISTORE), var));
+
+                    InsnList sub = new InsnList();
+                    sub.add(new VarInsnNode(type.getOpcode(ISTORE), var));
+
+                    save.insert(sub);
+
                     restore.add(new VarInsnNode(type.getOpcode(ILOAD), var));
-                    var += type.getSize();
+
+                    var++;
                 }
                 ctxMethod.maxLocals = var;
             }
@@ -478,6 +529,7 @@ public class InlinerTransformer extends Transformer {
 
         toInlineInto.insert(target, list);
         toInlineInto.remove(target);
+
     }
 
 }

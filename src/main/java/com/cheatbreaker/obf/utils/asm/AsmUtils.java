@@ -169,8 +169,9 @@ public class AsmUtils implements Opcodes{
                 list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false));
                 break;
             default:
-                if (!desc.equals("java/lang/Object")) list.add(new TypeInsnNode(CHECKCAST, desc));
-                break;
+                if (!desc.equals("Lnull;") && !desc.equals("Ljava/lang/Object;"))
+                    list.add(new TypeInsnNode(CHECKCAST, desc.startsWith("L") && desc.endsWith(";") ?
+                        desc.substring(1, desc.length() - 1) : desc));
         }
     }
 
@@ -201,7 +202,10 @@ public class AsmUtils implements Opcodes{
                 list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false));
                 break;
             default:
-                if (!desc.equals("java/lang/Object")) list.add(new TypeInsnNode(CHECKCAST, desc));
+                if (!desc.equals("Lnull;")) {
+                    list.add(new TypeInsnNode(CHECKCAST, desc.startsWith("L") && desc.endsWith(";") ?
+                            desc.substring(1, desc.length() - 1) : desc));
+                }
                 break;
         }
     }
@@ -387,5 +391,19 @@ public class AsmUtils implements Opcodes{
         }
 
         return null;
+    }
+
+    public static void swap(Type type, InsnList list) {
+        if (type.getSize() == 1)
+            list.add(new InsnNode(SWAP));
+        else {
+            /*
+            swaps:
+            obj
+            two word
+             */
+            list.add(new InsnNode(DUP_X2));
+            list.add(new InsnNode(POP));
+        }
     }
 }

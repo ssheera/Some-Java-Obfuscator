@@ -67,7 +67,21 @@ public class ExceptionTransformer extends Transformer {
                         Frame<BasicValue> frame = frames[instruction.index];
                         if (frame == null || frame.getStackSize() > 1)
                             continue;
-                        Type type = frame.getStack(frame.getStackSize() - 1).getType();
+
+                        BasicValue value;
+                        Type type;
+
+                        value = frame.getStack(frame.getStackSize() - 1);
+
+                        type = value.getType();
+
+                        if (value == BasicValue.UNINITIALIZED_VALUE ||
+//                                type.getSort() == Type.OBJECT ||
+                                type.getInternalName().equals("null") ||
+                                type.getInternalName().equals("java/lang/Object")) {
+                            continue;
+                        }
+
 
                         LabelNode start = new LabelNode();
                         LabelNode end = new LabelNode();
@@ -75,16 +89,6 @@ public class ExceptionTransformer extends Transformer {
                         LabelNode finish = new LabelNode();
 
                         TryCatchBlockNode tryCatch = new TryCatchBlockNode(start, end, handler, handlerName);
-
-                        if (type == null) {
-                            continue;
-                        }
-                        if (type.getSize() > 1) {
-                            continue;
-                        }
-                        if (type.getSort() == Type.OBJECT || type.getInternalName().equals("null") || type.getInternalName().equals("java/lang/Object")) {
-                            continue;
-                        }
 
                         InsnList list = new InsnList();
                         list.add(start);

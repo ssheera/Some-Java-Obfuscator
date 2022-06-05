@@ -85,20 +85,12 @@ public class VariableTransformer extends Transformer {
                         BasicValue value;
                         Type type;
 
-                        if (load) {
-                            value = frame.getLocal(var.var);
-                            type = value.getType();
-                        } else {
-                            value = frame.getStack(frame.getStackSize() - 1);
-                            type = value.getType();
-                        }
+                        value = frame.getStack(frame.getStackSize() - 1);
 
-//                        if (type.getSize() > 1) {
-//                            failedVars.add(var.var);
-//                            continue;
-//                        }
+                        type = value.getType();
+
                         if (value == BasicValue.UNINITIALIZED_VALUE ||
-                                type.getSort() == Type.OBJECT ||
+//                                type.getSort() == Type.OBJECT ||
                                 type.getInternalName().equals("null") ||
                         type.getInternalName().equals("java/lang/Object")) {
                             failedVars.add(var.var);
@@ -109,21 +101,21 @@ public class VariableTransformer extends Transformer {
                             varMap.put(var.var, potential.pop());
 
                         InsnList list = new InsnList();
-                        list.add(new VarInsnNode(ALOAD, arrayVar));
 
                         if (load) {
+                            list.add(new VarInsnNode(ALOAD, arrayVar));
                             list.add(AsmUtils.pushInt(varMap.get(var.var)));
                             list.add(new InsnNode(AALOAD));
                             AsmUtils.unboxPrimitive(type.getDescriptor(), list);
                         } else {
-                            AsmUtils.swap(type, list);
+                            AsmUtils.boxPrimitive(type.getDescriptor(), list);
+                            list.add(new VarInsnNode(ALOAD, arrayVar));
+                            list.add(new InsnNode(SWAP));
                             list.add(AsmUtils.pushInt(varMap.get(var.var)));
-                            AsmUtils.swap(type, list);
-                            if (var.getOpcode() != ASTORE) {
-                                AsmUtils.boxPrimitive(type.getDescriptor(), list);
-                            }
+                            list.add(new InsnNode(SWAP));
                             list.add(new InsnNode(AASTORE));
                         }
+
                         method.instructions.insertBefore(instruction, list);
                         method.instructions.remove(instruction);
                     }

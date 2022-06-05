@@ -16,7 +16,9 @@ import org.objectweb.asm.tree.analysis.BasicValue;
 import org.objectweb.asm.tree.analysis.Frame;
 
 import java.lang.reflect.Modifier;
-import java.util.*;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.Map;
 
 public class InlinerTransformer extends Transformer {
 
@@ -168,6 +170,7 @@ public class InlinerTransformer extends Transformer {
                     return false;
                 }
                 NodeAccess access = new NodeAccess(field.access);
+
                 if (!checkAccess(access, classNode, ownerClass)) {
                     if (debug) {
                         error("Field %s.%s%s is not accessible", ownerClass.name, ((FieldInsnNode) instruction).name, ((FieldInsnNode) instruction).desc);
@@ -180,6 +183,7 @@ public class InlinerTransformer extends Transformer {
                     }
                     return false;
                 }
+
                 field.access = access.access;
             } else if (instruction instanceof TypeInsnNode) {
                 String type = ((TypeInsnNode) instruction).desc;
@@ -412,6 +416,7 @@ public class InlinerTransformer extends Transformer {
             for (AbstractInsnNode abstractInsnNode : toInline) {
                 list.add(abstractInsnNode.clone(labels));
             }
+
             toInline = list;
         }
 
@@ -453,12 +458,13 @@ public class InlinerTransformer extends Transformer {
 
             frames = analyzer.analyzeAndComputeMaxs(ctx.name, ctxMethod);
 
-            int argsStack = Modifier.isStatic(targetMethod.access) ? 0 : 1;
+            int argsStack = target.getOpcode() == INVOKESTATIC ? 0 : 1;
             argsStack += Type.getArgumentTypes(targetMethod.desc).length;
 
             Frame<BasicValue> frame = frames[target.index];
             if (frame != null) {
                 int var = ctxMethod.maxLocals;
+
                 for (int i = 0; i < frame.getStackSize() - argsStack; i++) {
                     Type type = frame.getStack(i).getType();
 
@@ -485,23 +491,18 @@ public class InlinerTransformer extends Transformer {
 
         Type[] args = Type.getArgumentTypes(methodInsn.desc);
 
-        List<AbstractInsnNode> nodes = new ArrayList<>();
+        InsnList params = new InsnList();
 
         if (methodInsn.getOpcode() != INVOKESTATIC) {
-            nodes.add(new VarInsnNode(ASTORE, ctxMethod.maxLocals++));
+            params.insert(new VarInsnNode(ASTORE, ctxMethod.maxLocals++));
         }
 
         for (Type arg : args) {
-            nodes.add(new VarInsnNode(arg.getOpcode(ISTORE), ctxMethod.maxLocals));
+            params.insert(new VarInsnNode(arg.getOpcode(ISTORE), ctxMethod.maxLocals));
             ctxMethod.maxLocals += arg.getSize();
         }
 
-        Collections.reverse(nodes);
-
-        for (AbstractInsnNode node : nodes) {
-            list.add(node);
-        }
-
+        list.add(params);
         list.add(save);
 
         for (AbstractInsnNode insn : toInline) {

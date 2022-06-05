@@ -393,17 +393,4 @@ public class AsmUtils implements Opcodes{
         return null;
     }
 
-    public static void swap(Type type, InsnList list) {
-        if (type.getSize() == 1)
-            list.add(new InsnNode(SWAP));
-        else {
-            /*
-            swaps:
-            obj
-            two word
-             */
-            list.add(new InsnNode(DUP_X2));
-            list.add(new InsnNode(POP));
-        }
-    }
 }

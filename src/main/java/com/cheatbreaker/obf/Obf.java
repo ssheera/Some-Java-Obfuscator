@@ -119,8 +119,8 @@ public class Obf implements Opcodes {
         transformers.add(new ExceptionTransformer(this));
         transformers.add(new VariableTransformer(this));
         transformers.add(new StripTransformer(this));
-        transformers.add(new ConstantPoolTransformer(this));
         transformers.add(new ChecksumTransformer(this));
+        transformers.add(new ConstantPoolTransformer(this));
         transformers.add(new CodeHiderTransformer(this));
         transformers.add(new PackerTransformer(this));
 

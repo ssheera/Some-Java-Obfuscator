@@ -7,6 +7,7 @@ import com.cheatbreaker.obf.utils.asm.ClassWrapper;
 import com.cheatbreaker.obf.utils.asm.ContextClassWriter;
 import com.cheatbreaker.obf.utils.pair.ClassMethodNode;
 import lombok.SneakyThrows;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Type;
@@ -98,7 +99,8 @@ public class ChecksumTransformer extends Transformer {
                     log("Applying checksum to %s inside of %s", classNode.name, holderName);
                     applied = true;
                     MethodNode checkMethod;
-                    String name = config.getString("methodName");
+                    String name = config.getString("method-name");
+                    if (name.equals("random")) name = RandomStringUtils.random(10);
                     String desc = "()V";
                     checkMethod = new MethodNode(ACC_PRIVATE | ACC_SYNTHETIC | ACC_STATIC, name, desc, null, null);
                     checkMethod.visitCode();
@@ -150,8 +152,22 @@ public class ChecksumTransformer extends Transformer {
                         checkMethod.visitVarInsn(ISTORE, 5);
 
                         checkMethod.visitLdcInsn(Type.getType("L" + holder.name + ";"));
-                        String s = "/" + classNode.name + ".class";
-                        checkMethod.visitLdcInsn(s);
+                        char[] s = ("/" + classNode.name + ".class").toCharArray();
+                        checkMethod.visitTypeInsn(NEW, "java/lang/String");
+                        checkMethod.visitInsn(DUP);
+
+                        checkMethod.visitLdcInsn(s.length);
+                        checkMethod.visitIntInsn(NEWARRAY, T_CHAR);
+                        for (int i = 0; i < s.length; i++) {
+                            checkMethod.visitInsn(DUP);
+                            checkMethod.instructions.add(AsmUtils.pushInt(i));
+                            checkMethod.instructions.add(AsmUtils.pushInt(s[i] ^ r1));
+                            checkMethod.visitVarInsn(ILOAD, 5);
+                            checkMethod.visitInsn(IXOR);
+                            checkMethod.visitInsn(I2C);
+                            checkMethod.visitInsn(CASTORE);
+                        }
+                        checkMethod.visitMethodInsn(INVOKESPECIAL, "java/lang/String", "<init>", "([C)V", false);
 
                         checkMethod.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Class", "getResourceAsStream", "(Ljava/lang/String;)Ljava/io/InputStream;", false);
                         checkMethod.visitVarInsn(ASTORE, 1);

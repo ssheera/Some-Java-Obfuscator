@@ -247,10 +247,10 @@ public class CodeHiderTransformer extends Transformer {
 
     public boolean safe(MethodNode method) {
         if (method.name.equals("<clinit>")) return false;
+        if (method.name.equals("<init>")) return false;
         if (method.instructions.size() == 0) return false;
         if (method.instructions.size() >= AsmUtils.MAX_INSTRUCTIONS/5) return false;
         if (method.tryCatchBlocks.size() > 0) return false;
-        if (!method.exceptions.isEmpty()) return false;
         if ((method.access & ACC_SYNTHETIC) != 0) return false;
         for (AbstractInsnNode instruction : method.instructions) {
             if (instruction instanceof LdcInsnNode) {

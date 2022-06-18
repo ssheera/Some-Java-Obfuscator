@@ -1,10 +1,10 @@
-input: ..\hwidgen.jar
+input: eval.jar
 output: output.jar
 libs: []
 
 flow:
   exceptions:
-    enabled: true
+    enabled: false
     excluded: []
     included: []
     iterations: 1
@@ -20,18 +20,24 @@ strings:
     excluded: []
     included: []
     iterations: 1
+methods:
+  dynamic:
+    enabled: true
+    excluded: []
+    included: []
+    iterations: 1
 misc:
   vars:
-    enabled: true
+    enabled: false
     excluded: []
     included: []
     iterations: 1
   inliner:
-    enabled: true
+    enabled: false
     excluded: []
     included: []
     iterations: 1
-    maxPasses: 10
+    maxPasses: 1000
     remove-unused-methods: true
   checksum:
     enabled: false
@@ -43,7 +49,7 @@ misc:
     targets:
       - dev/sim0n/evaluator/Main
     reobf: true
-    methodName: "run"
+    method-name: random
     reduced: false
   packer:
     enabled: false

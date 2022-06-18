@@ -10,7 +10,7 @@ Native obfuscators shouldn't be used for production
   - `Strips debug information from classes, methods and fields`
 * ChecksumTransformer
   - `Inserts block of code inside configurable class which will check if the target method is modified, uses modified asm to check constant pool and method bytecode`
-* InlinerTransformer
+* InlinerTransformer (Disabled)
   - `Tries to inline methods, does need massive improvements`
 * VariableTransformer
   - `Just converted local variables to java.lang.Object[]`
@@ -23,6 +23,8 @@ Native obfuscators shouldn't be used for production
   - `Packs classes into a single file which are loaded afterwards`
 * ToStringTransformer
   - `Saw something cool in a source obfuscator and decided to implement it, converts strins to new Object() { toString... return "String" }.toString()`
+* ExceptionTransformer
+  - `Turns local storing to storing of exception objects`
 
 ## Disclaimers
 
@@ -67,6 +69,10 @@ You use the obfuscator by creating a config file much like the one provided and 
 ### Code Hider Obfuscation (Unstable)
 
 <img title="CodeHider Obfuscation" src="https://cdn.upload.systems/uploads/b9bmtvlE.png" alt="CodeHider Obfuscation"></img>
+
+### Exception Obfuscation
+
+<img title="Exception Obfuscation" src="https://cdn.upload.systems/uploads/WBBmPrGt.png" alt="Exception Obfuscation"></img>
 
 ## Credits
 

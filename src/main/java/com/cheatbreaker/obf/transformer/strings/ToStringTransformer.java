@@ -77,7 +77,6 @@ public class ToStringTransformer extends Transformer {
                     mn.visitInsn(RETURN);
                     cn.visitOuterClass(classNode.name, method.name, method.desc);
                     cn.visitEnd();
-                    obf.addClass(cn);
 
                     classNode.innerClasses.add(new InnerClassNode(cn.name, null, null, ACC_STATIC));
 
@@ -89,6 +88,9 @@ public class ToStringTransformer extends Transformer {
 
                     method.instructions.insertBefore(instruction, list);
                     method.instructions.remove(instruction);
+
+                    obf.addClass(cn);
+
                 }
             }
         }

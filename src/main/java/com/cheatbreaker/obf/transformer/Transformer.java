@@ -73,7 +73,9 @@ public abstract class Transformer implements Opcodes {
     }
 
 
+    @SneakyThrows
     public final void run(ClassWrapper classNode) {
+
         if (!enabled) return;
         for (String s : excluded) {
             if (classNode.name.startsWith(s)) return;

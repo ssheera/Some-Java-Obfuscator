@@ -29,6 +29,10 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.CodeSizeEvaluator;
 import org.objectweb.asm.tree.*;
+import org.objectweb.asm.tree.analysis.Analyzer;
+import org.objectweb.asm.tree.analysis.AnalyzerException;
+import org.objectweb.asm.tree.analysis.SourceInterpreter;
+import org.objectweb.asm.tree.analysis.SourceValue;
 import org.objectweb.asm.util.Printer;
 import org.objectweb.asm.util.Textifier;
 import org.objectweb.asm.util.TraceMethodVisitor;
@@ -42,6 +46,14 @@ import java.util.Random;
 public class AsmUtils implements Opcodes{
 
     public static final int MAX_INSTRUCTIONS = 0xFFFF;
+
+    public static InsnList println(String message) {
+        InsnList list = new InsnList();
+        list.add(new FieldInsnNode(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;"));
+        list.add(new LdcInsnNode(message));
+        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false));
+        return list;
+    }
 
     public static boolean isPushInt(AbstractInsnNode insn) {
         int op = insn.getOpcode();
@@ -202,7 +214,7 @@ public class AsmUtils implements Opcodes{
                 list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false));
                 break;
             default:
-                if (!desc.equals("Lnull;")) {
+                if (!desc.equals("Lnull;") && !desc.equals("Ljava/lang/Object;")) {
                     list.add(new TypeInsnNode(CHECKCAST, desc.startsWith("L") && desc.endsWith(";") ?
                             desc.substring(1, desc.length() - 1) : desc));
                 }
@@ -393,4 +405,13 @@ public class AsmUtils implements Opcodes{
         return null;
     }
 
+    public static void preverify(ClassWrapper classNode, MethodNode method) {
+        Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
+        try {
+            analyzer.analyzeAndComputeMaxs(classNode.name, method);
+        } catch (AnalyzerException e) {
+            System.out.println("Failed to preverify method: " + classNode.name + "." + method.name + method.desc);
+            e.printStackTrace();
+        }
+    }
 }

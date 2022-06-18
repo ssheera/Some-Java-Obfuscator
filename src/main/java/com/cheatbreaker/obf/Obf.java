@@ -3,6 +3,7 @@ package com.cheatbreaker.obf;
 import com.cheatbreaker.obf.transformer.Transformer;
 import com.cheatbreaker.obf.transformer.flow.ExceptionTransformer;
 import com.cheatbreaker.obf.transformer.general.StripTransformer;
+import com.cheatbreaker.obf.transformer.methods.DynamicTransformer;
 import com.cheatbreaker.obf.transformer.misc.ChecksumTransformer;
 import com.cheatbreaker.obf.transformer.misc.PackerTransformer;
 import com.cheatbreaker.obf.transformer.misc.VariableTransformer;
@@ -114,11 +115,12 @@ public class Obf implements Opcodes {
 
         System.out.println("Loading transformers...");
 
-        transformers.add(new ToStringTransformer(this));
+        transformers.add(new StripTransformer(this));
 //        transformers.add(new InlinerTransformer(this));
         transformers.add(new ExceptionTransformer(this));
         transformers.add(new VariableTransformer(this));
-        transformers.add(new StripTransformer(this));
+        transformers.add(new DynamicTransformer(this));
+        transformers.add(new ToStringTransformer(this));
         transformers.add(new ChecksumTransformer(this));
         transformers.add(new ConstantPoolTransformer(this));
         transformers.add(new CodeHiderTransformer(this));
@@ -254,7 +256,7 @@ public class Obf implements Opcodes {
                 if (entry.getName().endsWith(".class") || entry.getName().endsWith(".class/")) {
                     ClassReader reader = new ClassReader(bytes);
                     ClassWrapper classNode = new ClassWrapper(!lib);
-                    reader.accept(classNode, ClassReader.EXPAND_FRAMES);
+                    reader.accept(classNode, ClassReader.SKIP_FRAMES);
                     if (lib) libs.add(classNode);
                     else {
                         classes.add(classNode);

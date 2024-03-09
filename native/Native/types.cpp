@@ -1,5 +1,7 @@
 #include "types.hpp"
 
+
+
 std::string Symbol::to_string()
 {
     auto typeSymbol = VMType::from_instance("Symbol", this).value();
@@ -16,7 +18,7 @@ void** ConstantPool::get_base()
     static VMTypeEntry* ConstantPool_entry = VMTypes::findType("ConstantPool").value();
     if (!ConstantPool_entry) return nullptr;
 
-    return (void**)((uintptr_t)this + ConstantPool_entry->size);
+    return (void**)((uint8_t*)this + ConstantPool_entry->size);
 }
 
 Array<unsigned char>* ConstantPool::get_tags()
@@ -33,7 +35,7 @@ int ConstantPool::get_length()
     static VMStructEntry* length_entry = VMTypes::findTypeFields("ConstantPool").value().get()["_length"];
     if (!length_entry) return 0;
 
-    return *(int*)((uintptr_t)this + length_entry->offset);
+    return *(int*)((uint8_t*)this + length_entry->offset);
     return 0;
 }
 
@@ -41,10 +43,10 @@ ConstantPool* ConstMethod::get_constants()
 {
     if (!this) return nullptr;
 
-    static VMStructEntry* const_entry = VMTypes::findTypeFields("Method").value().get()["_constants"];
-    if (!const_entry) return nullptr;
+    static VMStructEntry* _constants_entry = VMTypes::findTypeFields("ConstMethod").value().get()["_constants"];
+    if (!_constants_entry) return nullptr;
 
-    return (ConstantPool*)((uintptr_t)this + const_entry->offset);
+    return *(ConstantPool**)((uint8_t*)this + _constants_entry->offset);
 }
 
 unsigned short ConstMethod::get_code_size()
@@ -54,17 +56,17 @@ unsigned short ConstMethod::get_code_size()
     static VMStructEntry* _code_size_entry = VMTypes::findTypeFields("ConstMethod").value().get()["_code_size"];
     if (!_code_size_entry) return 0;
 
-    return (unsigned short)((uintptr_t)this + _code_size_entry->offset);
+    return *(unsigned short*)((uint8_t*)this + _code_size_entry->offset);
 }
 
 unsigned short ConstMethod::get_name_index()
 {
     if (!this) return 0;
 
-    static VMStructEntry* _name_index_entry = VMTypes::findTypeFields("ConstMethod").value().get()["_name_inde"];
+    static VMStructEntry* _name_index_entry = VMTypes::findTypeFields("ConstMethod").value().get()["_name_index"];
     if (!_name_index_entry) return 0;
 
-    return (unsigned short)((uintptr_t)this + _name_index_entry->offset);
+    return *(unsigned short*)((uint8_t*)this + _name_index_entry->offset);
 }
 
 unsigned short ConstMethod::get_signature_index()
@@ -74,18 +76,17 @@ unsigned short ConstMethod::get_signature_index()
     static VMStructEntry* _signature_index_entry = VMTypes::findTypeFields("ConstMethod").value().get()["_signature_index"];
     if (!_signature_index_entry) return 0;
 
-    return (unsigned short)((uintptr_t)this + _signature_index_entry->offset);
-    return 0;
+    return *(unsigned short*)((uint8_t*)this + _signature_index_entry->offset);
 }
 
 ConstMethod* Method::get_constMethod()
 {
     if (!this) return nullptr;
 
-    static VMStructEntry* _constMethod_entry = VMTypes::findTypeFields("ConstMethod").value().get()["_constMethod"];
+    static VMStructEntry* _constMethod_entry = VMTypes::findTypeFields("Method").value().get()["_constMethod"];
     if (!_constMethod_entry) return nullptr;
 
-    return (ConstMethod*)((uintptr_t)this + _constMethod_entry->offset);
+    return *(ConstMethod**)((uint8_t*)this + _constMethod_entry->offset);
 }
 
 std::string Method::get_signature()
@@ -93,10 +94,9 @@ std::string Method::get_signature()
     if (!this) return "";
 
     ConstMethod* const_method = this->get_constMethod();
-    int signature_index = const_method->get_signature_index();
+    auto signature_index = const_method->get_signature_index();
     ConstantPool* cp = const_method->get_constants();
     Symbol** base = (Symbol**)cp->get_base();
-
     return base[signature_index]->to_string();
 }
 
@@ -105,10 +105,9 @@ std::string Method::get_name()
     if (!this) return "";
 
     ConstMethod* const_method = this->get_constMethod();
-    int signature_index = const_method->get_name_index();
+    auto signature_index = const_method->get_name_index();
     ConstantPool* cp = const_method->get_constants();
     Symbol** base = (Symbol**)cp->get_base();
-
     return base[signature_index]->to_string();
 }
 
@@ -119,7 +118,7 @@ Array<Method*>* Klass::get_methods()
     static VMStructEntry* _methods_entry = VMTypes::findTypeFields("InstanceKlass").value().get()["_methods"];
     if (!_methods_entry) return nullptr;
 
-    return (Array<Method*>*)((uintptr_t)this + _methods_entry->offset);
+    return *(Array<Method*>**)((uint8_t*)this + _methods_entry->offset);
 }
 
 ConstantPool* Klass::get_constants()
@@ -129,7 +128,7 @@ ConstantPool* Klass::get_constants()
     static VMStructEntry* _constants_entry = VMTypes::findTypeFields("InstanceKlass").value().get()["_constants"];
     if (!_constants_entry) return nullptr;
 
-    return (ConstantPool*)((uintptr_t)this + _constants_entry->offset);
+    return *(ConstantPool**)((uint8_t*)this + _constants_entry->offset);
 }
 
 
@@ -140,13 +139,13 @@ Symbol* Klass::get_name()
     static VMStructEntry* _name_entry = VMTypes::findTypeFields("Klass").value().get()["_name"];
     if (!_name_entry) return nullptr;
 
-    return (Symbol*)((uintptr_t)this + _name_entry->offset);
+    return *(Symbol**)((uint8_t*)this + _name_entry->offset);
 }
 
 Method* Klass::findMethod(const std::string& method_name, const std::string& method_sig)
 {
     auto _methods = get_methods();
-    auto _data =_methods->get_data();
+    auto _data = _methods->get_data();
     auto _length = _methods->get_length();
     for (int i = 0; i < _length; ++i)
     {

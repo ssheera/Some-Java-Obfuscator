@@ -1,6 +1,8 @@
 #pragma once
 #pragma warning(disable:26815)
 
+//thanks to github.com/rdbo/jnihook
+
 #ifndef JVM_HPP
 #define JVM_HPP
 

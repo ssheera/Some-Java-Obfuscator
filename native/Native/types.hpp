@@ -1,5 +1,6 @@
 #include "jvm.hpp"
 
+//thanks to github.com/Lefraudeur/RiptermsGhost/blob/master/HotSpot/HotSpot.cpp
 
 enum {
     JVM_CONSTANT_Utf8 = 1,
@@ -22,7 +23,7 @@ enum {
 
 class constantTag {
 public:
-    constantTag(unsigned char tag) :  _tag(tag) {}
+    constantTag(unsigned char tag) : _tag(tag) {}
     unsigned char _tag;
 public:
     bool is_klass() const { return _tag == JVM_CONSTANT_Class; }
@@ -43,7 +44,6 @@ public:
 
 
 template <typename T>
-//Notice : Array<u2> and Array<u1> ¡®s offset is different
 class Array
 {
 public:
@@ -51,17 +51,17 @@ public:
         if (!this) return 0;
         if (sizeof(T) != 0x08)
         {
-            static auto  typeArray = VMTypes::findTypeFields("Array<u2>");
+            static auto  typeArray = VMTypes::findTypeFields("Array<Klass*>"); 
             if (!typeArray.has_value()) return 0;
             static auto lengthEntry = typeArray.value().get()["_length"];
-            return *(int*)((uintptr_t)this + lengthEntry->offset);
+            return (int64_t)*(int*)((uintptr_t)this + lengthEntry->offset);
         }
         else {
             static auto  typeArray = VMTypes::findTypeFields("Array<Klass*>");
             if (!typeArray.has_value()) return 0;
             static auto lengthEntry = typeArray.value().get()["_length"];
 
-            return *(int*)((uintptr_t)this + lengthEntry->offset);
+            return *(int64_t*)((uintptr_t)this + lengthEntry->offset);
         }
     }
 
@@ -79,9 +79,9 @@ public:
             static auto dataEntry = typeArray.value().get()["_data"];
             return (T*)((uintptr_t)this + dataEntry->offset);
         }
-       
+
     }
-    auto at(int i) ->T {
+    auto at(int i) -> T {
         if (i >= 0 && i < this->get_length())
             return (T)(this->get_data()[i]);
         return (T)NULL;

@@ -12,8 +12,8 @@ namespace Offsets {
 
 
 static jintArray JNICALL raw_1bytes(JNIEnv* env, jclass  caller, jclass target, jstring method_name_and_sign_jstr) {
-
-    auto klass = reinterpret_cast<Klass*>(*(uintptr_t*)target + Offsets::klassOffset);
+    
+    auto klass = *reinterpret_cast<Klass**>(*(uintptr_t*)target + Offsets::klassOffset);
 
     auto method_name_and_sign = env->GetStringUTFChars(method_name_and_sign_jstr, 0);
     auto method =  klass->findMethod(method_name_and_sign);
@@ -23,7 +23,7 @@ static jintArray JNICALL raw_1bytes(JNIEnv* env, jclass  caller, jclass target, 
 
     auto code_size = c_method->get_code_size();
     auto arr = env->NewIntArray(code_size);
-    auto code_base = reinterpret_cast<char*>(c_method + 1);
+    auto code_base = *reinterpret_cast<char**>(c_method + 1);
     while (j < code_size) {
         auto bcp = code_base + j;
         auto bci = *(int*)bcp & 0xff;
@@ -79,9 +79,9 @@ extern "C" JNIIMPORT VMIntConstantEntry * gHotSpotVMIntConstants;
 extern "C" JNIIMPORT VMLongConstantEntry * gHotSpotVMLongConstants;
 
 static bool InitOffsets() {
-    auto oopDesc = VMTypes::findTypeFields("java_lang_Class");
-    if (!oopDesc.has_value()) return false;
-    Offsets::klassOffset = *(jint*)oopDesc.value().get()["_klass_offset"]->address;
+    auto java_lang_Class = VMTypes::findTypeFields("java_lang_Class");
+    if (!java_lang_Class.has_value()) return false;
+    Offsets::klassOffset = *(jint*)java_lang_Class.value().get()["_klass_offset"]->address;
 #ifdef DEBUG
     std::cout << "KlassOffset : " << Offsets::klassOffset << std::endl;
 #endif // DEBUG

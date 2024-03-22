@@ -3,3 +3,5 @@ MC.jar
 MC.obf.jar
 *.iml
 target/
+.vs/
+x64/
